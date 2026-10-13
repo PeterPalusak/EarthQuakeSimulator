@@ -38,9 +38,10 @@ If a real Play Store app is ever needed, the same codebase wraps in **Capacitor*
 Prerequisite: **Node.js 20 LTS or newer**. On Windows, install with `winget install OpenJS.NodeJS.LTS`,
 or use [nvm-windows](https://github.com/coreybutler/nvm-windows) if you juggle Node versions.
 
+Scaffold **in place**, into this repository root — not into a subfolder:
+
 ```bash
-npm create vite@latest earthquake-generator -- --template react-ts
-cd earthquake-generator
+npm create vite@latest . -- --template react-ts
 npm i three @react-three/fiber @react-three/drei @react-three/rapier zustand
 npm i -D tailwindcss @tailwindcss/vite @types/three vite-plugin-pwa vitest
 npm i -D @vitejs/plugin-basic-ssl @playwright/test   # phone testing + E2E, see 3.7
@@ -397,8 +398,9 @@ own preview URL you can open directly on the phone. Both serve `.wasm` with the 
 and give you HTTPS automatically, which the PWA requires.
 
 **GitHub Pages** works too and is a good fit if the repo already lives on GitHub — one caveat: a
-project site is served from a subpath, so set `base: '/earthquake-generator/'` in `vite.config.ts`
-or every asset 404s.
+project site is served from a subpath, so set `base: '/EarthQuakeSimulator/'` in `vite.config.ts`
+(matching the repository name) or every asset 404s. The site would then live at
+`https://peterpalusak.github.io/EarthQuakeSimulator/`.
 
 ```yaml
 # .github/workflows/deploy.yml
