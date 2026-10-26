@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 import { Buildings } from './Building'
 import { CameraControls } from './CameraControls'
 import { CollapseDust } from './CollapseDust'
+import { EpicentreMarker } from './EpicentreMarker'
 import { Ground } from './Ground'
 import { Lighting } from './Lighting'
 import { PerfOverlay } from './PerfOverlay'
@@ -33,6 +34,7 @@ export function Scene() {
           <Buildings />
           <CollapseDust />
         </PhysicsProvider>
+        <EpicentreMarker />
         <PlacementGhost />
         <CameraControls />
         <PerfOverlay />

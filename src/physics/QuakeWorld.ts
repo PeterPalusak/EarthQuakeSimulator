@@ -375,6 +375,18 @@ export class QuakeWorld {
         building.bodies[i].setGravityScale(1, true)
         building.bodies[i].setLinearDamping(0.1)
       }
+      // The failed storey has lost the columns that held its floor up, so the slab above
+      // drops through it. Flattening its collider is what lets that happen: without it the
+      // floors above simply rest on the floors below at their original height and a
+      // "collapse" leaves the building standing at full height, which reads as a bug.
+      const collider = building.bodies[storey].collider(0)
+      if (collider) {
+        const half = collider.halfExtents()
+        if (half) {
+          collider.setHalfExtents({ x: half.x, y: FLOOR_HEIGHT * 0.15, z: half.z })
+        }
+      }
+
       // The storey below now carries the falling mass above it. Real collapses propagate
       // downward for exactly this reason — it is what makes a pancake collapse rather than a
       // clean decapitation. Halving its capacity makes it much more likely to go next.

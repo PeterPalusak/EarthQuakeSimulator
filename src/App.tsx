@@ -3,6 +3,7 @@ import { BuildingPalette } from './ui/BuildingPalette'
 import { DamageSummary } from './ui/DamageSummary'
 import { MotionDebugPanel } from './ui/MotionDebugPanel'
 import { QuakeButton } from './ui/QuakeButton'
+import { QuakeControls } from './ui/QuakeControls'
 import { SelectionControls } from './ui/SelectionControls'
 
 export default function App() {
@@ -16,7 +17,13 @@ export default function App() {
         <DamageSummary />
         <SelectionControls />
         <MotionDebugPanel />
-        <QuakeButton />
+
+        {/* The red button and the quake settings share one column so they cannot overlap:
+            stacked along the bottom on a phone, a right-hand column on anything wider. */}
+        <div className="absolute inset-x-0 bottom-0 flex flex-col items-end gap-2 p-3 sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:justify-center">
+          <QuakeButton />
+          <QuakeControls />
+        </div>
       </div>
     </div>
   )

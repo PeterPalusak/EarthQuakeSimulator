@@ -60,6 +60,10 @@ export function Building({ building }: { building: PlacedBuilding }) {
       const r = instance.bodies[i].rotation()
       mesh.position.set(t.x, t.y, t.z)
       mesh.quaternion.set(r.x, r.y, r.z, r.w)
+      // A failed storey loses its columns and is crushed: the physics collider is flattened
+      // on failure, and the mesh has to follow or floors visibly interpenetrate.
+      const crushed = instance.joints[i] === null
+      mesh.scale.set(w, FLOOR_HEIGHT * (crushed ? 0.3 : 1), d)
 
       const drift = instance.peakDrift[i] ?? 0
       if (drift <= 0) {

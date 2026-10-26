@@ -1,20 +1,16 @@
 import { expect, test } from '@playwright/test'
+import { placeBuilding, runQuakeAndWait, tapGround, waitForScene } from './helpers'
 
 test('scene loads and renders without errors', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
 
-  await page.goto('/')
-  await expect(page.locator('canvas')).toBeVisible()
-  await page.waitForTimeout(1500) // let a few frames render
-
+  await waitForScene(page)
   expect(errors).toEqual([])
 })
 
 test('select a building type and place it by tapping the ground', async ({ page }) => {
-  await page.goto('/')
-  await expect(page.locator('canvas')).toBeVisible()
-  await page.waitForTimeout(1000)
+  await waitForScene(page)
 
   await page.getByRole('button', { name: 'Small house' }).click()
   await expect(page.getByRole('button', { name: 'Small house' })).toHaveAttribute(
@@ -23,28 +19,23 @@ test('select a building type and place it by tapping the ground', async ({ page 
   )
 
   await expect(page.getByTestId('placed-count')).toHaveText('0 placed')
-  await page.locator('canvas').click({ position: { x: 400, y: 400 } })
+  await tapGround(page)
   await expect(page.getByTestId('placed-count')).toHaveText('1 placed')
 })
 
 test('place a building and run a quake', async ({ page }) => {
+  test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
 
-  await page.goto('/')
-  await expect(page.locator('canvas')).toBeVisible()
-  await page.waitForTimeout(1500)
-
-  await page.getByRole('button', { name: 'Small house' }).click()
-  await page.locator('canvas').click({ position: { x: 400, y: 400 } })
+  await waitForScene(page)
+  await placeBuilding(page, 'Small house')
   await expect(page.getByTestId('placed-count')).toHaveText('1 placed')
 
-  const quake = page.getByRole('button', { name: 'Start earthquake' })
-  await quake.click()
-  await expect(quake).toBeDisabled()
-  await expect(quake).toBeEnabled({ timeout: 60_000 })
+  await runQuakeAndWait(page, 60_000)
 
-  // Reset only appears once a quake has run, and returns the scene to idle.
+  // Reset only appears once a quake has run, and returns the scene to idle with the
+  // buildings still placed.
   await page.getByRole('button', { name: 'Reset buildings' }).click()
   await expect(page.getByRole('button', { name: 'Reset buildings' })).toBeHidden()
   await expect(page.getByTestId('placed-count')).toHaveText('1 placed')

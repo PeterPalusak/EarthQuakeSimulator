@@ -18,7 +18,7 @@ export function QuakeButton() {
   const progress = running && motion ? Math.min(elapsed / motion.duration, 1) : 0
 
   return (
-    <div className="pointer-events-auto absolute right-3 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2">
+    <div className="pointer-events-auto flex items-center gap-2 sm:flex-col">
       <button
         type="button"
         aria-label="Start earthquake"
@@ -46,7 +46,7 @@ export function QuakeButton() {
           need to know whether you are watching a 0.2 g shake or solver nonsense. */}
       <div
         data-testid="quake-readout"
-        className="rounded-lg bg-slate-900/75 px-2 py-1 text-center font-mono text-[10px] leading-tight text-white shadow backdrop-blur"
+        className="order-first rounded-lg bg-slate-900/75 px-2 py-1 text-center font-mono text-[10px] leading-tight text-white shadow backdrop-blur sm:order-none"
       >
         <div>M {settings.magnitude.toFixed(1)}</div>
         <div>{settings.distanceKm} km</div>
@@ -67,7 +67,7 @@ export function QuakeButton() {
       )}
 
       {placedCount === 0 && phase === 'idle' && (
-        <p className="max-w-28 text-center text-[10px] leading-tight text-white/70">
+        <p className="order-first max-w-28 text-center text-[10px] leading-tight text-white/80 sm:order-none">
           Pick a building above, then tap the ground
         </p>
       )}
