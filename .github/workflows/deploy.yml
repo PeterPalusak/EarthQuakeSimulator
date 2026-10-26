@@ -5,28 +5,48 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege by default; the two jobs widen it only as far as they each need.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Never cancel a deployment that is already running — a half-published Pages site is worse
+  # than a queued one. Only the build of a superseded commit is wasted work.
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write # configure-pages needs this to create the site on the first run
     steps:
       - uses: actions/checkout@v4
+
+      # Creates the Pages site and sets its source to GitHub Actions if that has not been done
+      # already. Without it, `deploy-pages` fails with a 404 — "Get Pages site failed" — while
+      # the build above it passes, which reads as a mysteriously broken deploy. Enabling Pages
+      # by hand in the repository settings works too, but then the workflow silently depends on
+      # a setting nobody can see from the repo.
+      - id: pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm run lint
       - run: npm test # gate the deploy on the unit + physics tests
+
       - run: npm run build
         env:
-          VITE_BASE: /EarthQuakeSimulator/ # Pages only — every other target uses '/'
+          # A Pages project site is served from a subpath, so every asset 404s unless `base`
+          # matches it. Taken from configure-pages rather than hard-coded, so renaming the
+          # repository cannot quietly break the deploy. Every other host uses '/'.
+          VITE_BASE: ${{ steps.pages.outputs.base_path || '/EarthQuakeSimulator' }}/
+
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
 
@@ -34,6 +54,9 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write # required for the OIDC token deploy-pages exchanges
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

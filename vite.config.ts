@@ -4,11 +4,25 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
+/**
+ * '/' everywhere except GitHub Pages, which serves a project site from a subpath — get this
+ * wrong and you get a blank page with a 404 on every asset and no useful error.
+ *
+ * Normalised rather than used raw, because Vite needs a leading *and* trailing slash and the
+ * value arrives from several places that disagree: the Pages workflow derives it from
+ * `configure-pages`, whose `base_path` output has no trailing slash and is a bare '/' for a
+ * user site, and the Dockerfile passes it as a build argument. See plan/08-deployment.md and
+ * plan/09-container-and-azure.md. vite.config runs in Node, so process.env works here.
+ */
+function resolveBase(): string {
+  const raw = process.env.VITE_BASE?.trim()
+  if (!raw) return '/'
+  const trimmed = raw.replace(/^\/+/, '').replace(/\/+$/, '')
+  return trimmed ? `/${trimmed}/` : '/'
+}
+
 export default defineConfig(({ mode }) => ({
-  // '/' everywhere except GitHub Pages, which serves from a project subpath.
-  // The Pages workflow sets VITE_BASE=/EarthQuakeSimulator/ — see plan/08-deployment.md
-  // and plan/09-container-and-azure.md. vite.config runs in Node, so process.env works here.
-  base: process.env.VITE_BASE ?? '/',
+  base: resolveBase(),
   plugins: [
     react(),
     tailwindcss(),
