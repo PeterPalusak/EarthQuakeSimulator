@@ -7,6 +7,9 @@ to `main`, with tests gating the deploy.
 
 Full background in [Description.md](../Description.md) §3.7. This file is the task list.
 
+For a **container image and Azure hosting**, see [09-container-and-azure.md](09-container-and-azure.md)
+— optional, and built on top of this phase.
+
 ---
 
 ## Do this twice
@@ -40,9 +43,10 @@ served from a subpath:
 https://peterpalusak.github.io/EarthQuakeSimulator/
 ```
 
-so `base: '/EarthQuakeSimulator/'` in `vite.config.ts` must match the repository name exactly.
-**On any other host, set `base: '/'` instead.** Getting this wrong gives a blank page with 404s on
-every asset and no useful error — it is the most likely first-deploy failure.
+so the Pages workflow must set `VITE_BASE=/EarthQuakeSimulator/`, matching the repository name
+exactly (phase 0.3 defaults `base` to `/`). **On any other host — Cloudflare, Netlify, a container,
+Azure — leave it at `/`.** Getting this wrong gives a blank page with 404s on every asset and no
+useful error; it is the most likely first-deploy failure.
 
 ### 8.2 Enable the CI deploy job
 

@@ -21,9 +21,15 @@ This document covers *how* and *in what order*.
 | 6 | Collapse & polish | [06-collapse-and-polish.md](plan/06-collapse-and-polish.md) | Buildings fail and fall down convincingly | 1.5 d |
 | 7 | Quake controls | [07-quake-controls.md](plan/07-quake-controls.md) | Magnitude + epicentre distance (Description §2 "later") | 1 d |
 | 8 | Deployment | [08-deployment.md](plan/08-deployment.md) | Live URL, installable PWA, CI gate | 0.5 d |
+| 9 | Container & Azure *(optional)* | [09-container-and-azure.md](plan/09-container-and-azure.md) | Docker image, Azure Container Apps, CD | 0.5 d |
 
 Estimates assume one person and are deliberately rough. Phases 3 and 4 carry the real risk;
 everything else is assembly.
+
+**Phase 9 is optional.** Phase 8 already yields a live, installable, CDN-backed URL for €0. Do
+phase 9 only if Azure is the mandated platform, or if you need control over HTTP headers (COOP/COEP
+for a future multithreaded Rapier build), or want a self-hostable image. If "on Azure" is the only
+requirement, Azure Static Web Apps needs no container at all — see task 9.9.
 
 **Phase 8 is deliberately not last in practice.** Do a first deploy at the end of phase 5, as
 soon as there is something worth looking at. See [08-deployment.md](plan/08-deployment.md).
@@ -49,6 +55,8 @@ soon as there is something worth looking at. See [08-deployment.md](plan/08-depl
         6 Collapse      7 Controls
                     │
               8 Full deploy
+                    │
+              9 Container & Azure   ← optional, see plan/09-container-and-azure.md
 ```
 
 Phase 4 touches no Three.js and no Rapier. If two people are working, that is the clean split:

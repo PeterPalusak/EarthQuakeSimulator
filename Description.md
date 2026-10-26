@@ -392,15 +392,28 @@ gestures orbit the camera — this is the one automated check on the gesture lay
 `npm run build` produces a fully static `dist/` — HTML, JS, a `.wasm` file and assets. There is no
 server, no database and no API, so hosting is trivial and free.
 
+This section covers the static hosts, which are the lightest path to a URL. If the target is Azure,
+a corporate platform, or you want control over HTTP headers, see §3.8 (containerisation) and §3.9
+(Azure) — the container is the same `dist/` with nginx in front of it.
+
 **Recommended: Cloudflare Pages or Netlify.** Connect the Git repository, set build command
 `npm run build` and output directory `dist`, done. Every push deploys; every pull request gets its
 own preview URL you can open directly on the phone. Both serve `.wasm` with the correct MIME type
 and give you HTTPS automatically, which the PWA requires.
 
 **GitHub Pages** works too and is a good fit if the repo already lives on GitHub — one caveat: a
-project site is served from a subpath, so set `base: '/EarthQuakeSimulator/'` in `vite.config.ts`
-(matching the repository name) or every asset 404s. The site would then live at
+project site is served from a subpath, so `base` must be `'/EarthQuakeSimulator/'` (matching the
+repository name) or every asset 404s. The site would then live at
 `https://peterpalusak.github.io/EarthQuakeSimulator/`.
+
+Because `base` differs per host — `/EarthQuakeSimulator/` for Pages, `/` for everything else —
+make it a build-time variable in `vite.config.ts` rather than a hard-coded string:
+
+```ts
+base: process.env.VITE_BASE ?? '/',
+```
+
+and set `VITE_BASE: /EarthQuakeSimulator/` in the Pages workflow's `env:` only.
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -421,6 +434,8 @@ jobs:
       - run: npm ci
       - run: npm test          # gate the deploy on the unit + physics tests
       - run: npm run build
+        env:
+          VITE_BASE: /EarthQuakeSimulator/   # Pages only — every other target uses '/'
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
   deploy:
@@ -439,7 +454,8 @@ later that buildings no longer collapse.
 
 - **`.wasm` MIME type.** Rapier ships a WebAssembly binary. The host must serve it as
   `application/wasm` or it fails to instantiate. Cloudflare, Netlify, Vercel and GitHub Pages all
-  do this correctly — a hand-rolled IIS or nginx may not, and the error message is unhelpful.
+  do this correctly — a hand-rolled IIS or nginx may not, and the error message is unhelpful. If
+  you take the container route you own that config; §3.8's `nginx.conf` sets it explicitly.
 - **Bundle size.** Three.js plus the Rapier WASM is roughly 1.5 MB gzipped. Fine on Wi-Fi, slow on
   mobile data. Let `vite-plugin-pwa` precache it so the second visit is instant and offline.
 - **Cache busting.** Vite hashes filenames, so this is handled — but configure the service worker
@@ -464,7 +480,275 @@ npx cap open android      # opens Android Studio → build signed AAB
 No code changes. This requires Android Studio and a Play Console account (one-off fee), so defer
 it until there is a concrete reason — the PWA covers the same ground with far less overhead.
 
-### 3.8 Build order
+### 3.8 Containerisation
+
+**Yes — and it is almost trivial, because the build output is static.** There is no server process,
+no database and no API: the container is a web server with `dist/` copied into it. That makes the
+image small (~60 MB), the startup instant and the runtime attack surface nearly nil.
+
+**What a container actually buys this project**, honestly:
+
+| Buys you | Does not buy you |
+|---|---|
+| A reproducible build — Node version pinned in the image, not "whatever is on the machine" | A better dev loop. `npm run dev` on the host is faster; do not develop inside the container |
+| **Full control of HTTP headers** — MIME types, cache policy, and COOP/COEP if Rapier ever goes multithreaded (see gotchas) | Anything the PWA needs. A static host does all of it already |
+| Deployment to Azure Container Apps / App Service, or any corporate Kubernetes | Lower cost. A registry costs ~€5/month; Cloudflare Pages costs €0 |
+| Self-hosting on a NAS or a laptop with one `docker run` | Faster delivery. A CDN-backed static host beats a single container region |
+
+So: containerise if the hosting target is Azure or a corporate platform, or if you want the header
+control. If the only goal is a public URL for a phone, §3.7's static hosts remain the lighter path.
+
+#### Make `base` configurable first
+
+§3.7 sets `base: '/EarthQuakeSimulator/'` for GitHub Pages. A container serves from the root, so
+the same hard-coded value would 404 every asset. Make it a build argument in `vite.config.ts`:
+
+```ts
+base: process.env.VITE_BASE ?? '/',    // '/' for container, Cloudflare, Netlify, Capacitor
+```
+
+and pass `VITE_BASE=/EarthQuakeSimulator/` only in the GitHub Pages workflow. Vite config runs in
+Node, so `process.env` is available there — this is not a client-side variable.
+
+#### Dockerfile — multi-stage, build then serve
+
+```dockerfile
+# ---- stage 1: build ----
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci                       # lockfile only — cached unless dependencies change
+COPY . .
+ARG VITE_BASE=/
+ENV VITE_BASE=$VITE_BASE
+RUN npm run build                # tsc -b && vite build  ->  /app/dist
+
+# ---- stage 2: serve ----
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 8080
+```
+
+Two deliberate choices. **`nginx-unprivileged`** runs as a non-root user and listens on 8080 —
+Azure Container Apps, App Service and most Kubernetes policies either require or prefer this, and
+the stock `nginx` image needs root to bind port 80. **Copying `package*.json` before the source**
+keeps the `npm ci` layer cached, so an edit to a `.tsx` file rebuilds in seconds rather than
+re-downloading Three.js and Rapier every time.
+
+`.dockerignore` matters more than it looks — without it the 300 MB `node_modules` is uploaded to
+the daemon on every build:
+
+```
+node_modules
+dist
+.git
+e2e
+playwright-report
+test-results
+*.md
+```
+
+#### nginx.conf — the four things this app needs
+
+```nginx
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # 1. SPA fallback — one entry point, the PWA needs any path to return index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 2. Rapier's WebAssembly binary MUST be application/wasm or it never instantiates.
+    #    `types { }` + default_type is the safe idiom: it cannot collide with mime.types.
+    location ~* \.wasm$ {
+        types { }
+        default_type application/wasm;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # 3. Cache policy. Vite hashes asset filenames, so they are immutable forever...
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # ...but these three are NOT hashed, and caching them strands users on an old build.
+    location = /index.html            { add_header Cache-Control "no-cache"; }
+    location = /sw.js                 { add_header Cache-Control "no-cache"; }
+    location = /manifest.webmanifest  { add_header Cache-Control "no-cache"; }
+
+    # 4. Compression — Three.js + Rapier is ~1.5 MB gzipped, 5 MB raw.
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types application/javascript application/json application/wasm
+               text/css text/plain image/svg+xml application/manifest+json;
+
+    location = /healthz { access_log off; return 200 "ok\n"; }
+}
+```
+
+Rule 3 is the one that causes real pain if skipped. An immutable `Cache-Control` on `sw.js` means a
+deployed fix never reaches a returning user, and the symptom — "my change didn't deploy" — sends
+you looking at the pipeline, which is working perfectly.
+
+#### Build and run
+
+```bash
+docker build -t quake:dev .
+docker run --rm -p 8080:8080 quake:dev      # http://localhost:8080
+```
+
+Note this is plain HTTP on localhost, which is enough to test the service worker (browsers treat
+`localhost` as a secure context). Testing it from a phone on the LAN needs HTTPS, so put the
+container behind a tunnel (`npx cloudflared tunnel --url http://localhost:8080`) or deploy it.
+
+A useful CI trick: run the E2E suite against the image rather than the dev server, so Playwright
+tests exactly the artefact that ships — `docker run -d -p 8080:8080 quake:ci` then
+`npx playwright test --base-url http://localhost:8080`.
+
+### 3.9 Deploying the container on Azure
+
+#### Choosing a service
+
+| Option | Container? | Fit | Approx. cost |
+|---|---|---|---|
+| **Azure Static Web Apps** | No — uploads `dist/` | **Best fit if you don't need a container.** Global CDN, free HTTPS, PR preview environments, native GitHub Actions | **€0** (Free tier) |
+| **Azure Container Apps** | Yes | **Best container target.** Scale-to-zero, free HTTPS + FQDN, revisions, no cluster to manage | ~€0 compute (monthly free grant) + registry |
+| **App Service for Containers** | Yes | Always-on, deployment slots, custom domains. Simplest mental model if you already run App Service | ~€13/mo (B1) + registry |
+| **Container Instances (ACI)** | Yes | Single container, no HTTPS and no custom domain without fronting it with Front Door | ~€10/mo + Front Door |
+| **AKS** | Yes | Only if a cluster already exists for other reasons | Substantial |
+
+Recommendation: **Static Web Apps** if the goal is simply a URL on Azure, **Container Apps** if the
+container is a requirement. Skip ACI — the missing HTTPS matters because the PWA will not install
+without it.
+
+Registry: **Azure Container Registry Basic** (~€5/month) is the Azure-native choice and integrates
+with managed identity, so no passwords exist anywhere. **GitHub Container Registry** (`ghcr.io`) is
+free for public images and Container Apps can pull from it — the cheaper option, at the cost of a
+pull secret.
+
+#### Provisioning Container Apps (one-off)
+
+```bash
+RG=rg-quake; LOC=westeurope; ACR=acrquake$RANDOM; APP=quake
+
+az group create -n $RG -l $LOC
+az acr create -n $ACR -g $RG --sku Basic
+az containerapp env create -n cae-quake -g $RG -l $LOC
+
+# Build the image in Azure — no local Docker needed, and always linux/amd64
+az acr build -r $ACR -t quake:$(git rev-parse --short HEAD) -t quake:latest .
+
+az containerapp create -n $APP -g $RG --environment cae-quake \
+  --image $ACR.azurecr.io/quake:latest \
+  --registry-server $ACR.azurecr.io --registry-identity system \
+  --target-port 8080 --ingress external \
+  --min-replicas 0 --max-replicas 2 \
+  --cpu 0.25 --memory 0.5Gi
+
+az containerapp show -n $APP -g $RG \
+  --query properties.configuration.ingress.fqdn -o tsv
+# -> quake.<random>.westeurope.azurecontainerapps.io   (HTTPS, certificate included)
+```
+
+`--registry-identity system` creates a system-assigned managed identity and grants it `AcrPull`, so
+the app authenticates to the registry without a stored credential.
+
+`--min-replicas 0` is scale-to-zero: the app costs nothing while nobody uses it, at the price of a
+~1–3 s cold start on the first request after an idle period. For a demo that is the right trade;
+set `--min-replicas 1` if a visitor's first impression must be instant.
+
+`az acr build` is worth preferring over `docker build && docker push`: it builds server-side, so it
+needs no local Docker daemon and cannot accidentally produce an `arm64` image from an Apple Silicon
+machine — an architecture mismatch that fails only at deploy time, with a confusing error.
+
+#### Continuous deployment from GitHub (passwordless)
+
+Use OIDC federation rather than a service-principal secret. Create a user-assigned managed identity
+(or app registration) with a federated credential scoped to
+`repo:PeterPalusak/EarthQuakeSimulator:ref:refs/heads/main`, give it **AcrPush** on the registry and
+**Contributor** on the resource group, then store only the three non-secret IDs as repository
+variables.
+
+```yaml
+# .github/workflows/azure-container.yml
+name: Deploy container to Azure
+on:
+  push: { branches: [main] }
+permissions:
+  contents: read
+  id-token: write          # required for OIDC — without it azure/login fails
+env:
+  RG: rg-quake
+  ACR: acrquake1234
+  APP: quake
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npm test                      # gate the deploy on unit + physics tests
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az acr build -r $ACR -t quake:${{ github.sha }} .
+      - run: az containerapp update -n $APP -g $RG --image $ACR.azurecr.io/quake:${{ github.sha }}
+```
+
+Tag with `github.sha`, never only `latest`. Container Apps creates a new revision per image change,
+so an immutable tag gives you a one-command rollback:
+`az containerapp revision set-mode ... ` / `az containerapp update --image ...:<previous-sha>`.
+With a floating `latest` tag, the platform may not even notice the image changed.
+
+#### If you choose Static Web Apps instead (no container)
+
+```bash
+az staticwebapp create -n swa-quake -g $RG -l westeurope --sku Free \
+  --source https://github.com/PeterPalusak/EarthQuakeSimulator \
+  --branch main --app-location "/" --output-location "dist" --login-with-github
+```
+
+This writes its own GitHub Actions workflow. Add `staticwebapp.config.json` for the SPA fallback
+and the headers nginx would otherwise provide:
+
+```json
+{
+  "navigationFallback": { "rewrite": "/index.html" },
+  "mimeTypes": { ".wasm": "application/wasm" },
+  "routes": [
+    { "route": "/sw.js", "headers": { "Cache-Control": "no-cache" } },
+    { "route": "/assets/*", "headers": { "Cache-Control": "public, max-age=31536000, immutable" } }
+  ]
+}
+```
+
+#### Azure-specific gotchas
+
+- **`base` must be `/`.** The single most likely first-failure: a container or SWA deploy built with
+  the GitHub Pages `base` serves a blank page with 404s on every asset.
+- **Target port 8080**, matching the `nginx-unprivileged` image. Container Apps does not probe for
+  the port; if `--target-port` disagrees with the listener, ingress returns 502 forever.
+- **Image architecture.** Azure runs `linux/amd64`. Building on an ARM Mac without
+  `--platform linux/amd64` produces an image that pulls fine and then crash-loops. `az acr build`
+  sidesteps this entirely.
+- **Scale-to-zero cold start** is visible to the first visitor after idle. Expected, not a bug.
+- **No egress, no secrets, no state** — this container needs no environment variables, no Key Vault
+  and no storage mount. If a deployment template asks for them, something has been over-engineered.
+- **Cross-origin isolation (future).** If Rapier is ever switched to its multithreaded build, it
+  needs `SharedArrayBuffer`, which requires `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp`. Those are two `add_header` lines in `nginx.conf` —
+  and impossible on GitHub Pages. That is the strongest technical argument for owning the server.
+
+### 3.10 Build order
 
 | Phase | Deliverable |
 |---|---|
@@ -476,6 +760,7 @@ it until there is a concrete reason — the PWA covers the same ground with far 
 | 6 | Physics regression tests + CI pipeline + first deploy to a live URL |
 | 7 | Joint breaking → collapse; dust/debris polish |
 | 8 | Magnitude + distance sliders, draggable epicentre marker |
+| 9 | *Optional:* Dockerfile + nginx, Azure Container Apps, CD from GitHub (§3.8, §3.9) |
 
 Deploy at phase 6 rather than at the end. A live URL is the easiest way to open the app on any
 phone without a dev server, and shipping something small early flushes out the WASM/HTTPS/base-path

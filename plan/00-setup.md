@@ -44,7 +44,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
 export default defineConfig({
-  base: '/EarthQuakeSimulator/',      // GitHub Pages project path — see plan/08-deployment.md
+  // '/' everywhere except GitHub Pages, which serves from a project subpath.
+  // The Pages workflow sets VITE_BASE=/EarthQuakeSimulator/ — see plan/08-deployment.md
+  // and plan/09-container-and-azure.md. vite.config runs in Node, so process.env works here.
+  base: process.env.VITE_BASE ?? '/',
   plugins: [
     react(),
     tailwindcss(),
@@ -78,9 +81,9 @@ export default defineConfig({
 })
 ```
 
-> `base` is only correct for GitHub Pages. If deploying to Cloudflare Pages or Netlify instead,
-> set it to `'/'`. Getting this wrong produces a blank page with 404s on every asset and no
-> useful error message.
+> `base` defaults to `'/'`, which is correct for Cloudflare Pages, Netlify, a container, Azure and
+> Capacitor. Only the GitHub Pages workflow overrides it via `VITE_BASE`. Getting this wrong
+> produces a blank page with 404s on every asset and no useful error message.
 
 ### 0.4 `npm` scripts
 
