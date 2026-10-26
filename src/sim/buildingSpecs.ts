@@ -25,10 +25,14 @@ export interface BuildingSpec {
   footprint: [number, number]
   /** kg per floor */
   floorMass: number
-  /** N·m/rad — angular spring between consecutive floors. Calibrated by scripts/calibrate.ts. */
-  jointStiffness: number
-  /** N·m·s/rad — joint damping. Real structures dissipate energy. */
-  jointDamping: number
+  /**
+   * N/m — lateral (shear) stiffness of one storey: the restoring force per metre of
+   * horizontal displacement between two consecutive floors. Calibrated by
+   * `npm run calibrate` so free vibration matches `targetPeriod(floors)`.
+   */
+  storeyStiffness: number
+  /** N·s/m — storey damping. Real structures dissipate energy; without it nothing settles. */
+  storeyDamping: number
   /** Interstorey drift ratio at failure — phase 6. */
   driftCapacity: number
   colour: string
@@ -41,6 +45,11 @@ export interface BuildingSpec {
  *
  * `driftCapacity` is lower for the taller concrete blocks (1.8 %) than for timber houses
  * (3.0 %) — stiffer, more brittle structures tolerate less drift before failing.
+ *
+ * `storeyStiffness` and `storeyDamping` are **calibration output**, not guesses: they come
+ * from `npm run calibrate`, which bisects each type's stiffness until its measured
+ * free-vibration period matches `targetPeriod(floors)`. Damping is 5 % of critical for the
+ * first mode. Do not hand-edit them — re-run the script and paste the result.
  */
 export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
   smallHouse: {
@@ -49,8 +58,8 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
     floors: 1,
     footprint: [6, 6],
     floorMass: 15_000,
-    jointStiffness: 5.33e8,
-    jointDamping: 2.0e6,
+    storeyStiffness: 5.92e7,
+    storeyDamping: 9.4e4,
     driftCapacity: 0.03,
     colour: '#d9a066',
   },
@@ -60,8 +69,8 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
     floors: 2,
     footprint: [9, 8],
     floorMass: 30_000,
-    jointStiffness: 6.98e8,
-    jointDamping: 3.0e6,
+    storeyStiffness: 7.76e7,
+    storeyDamping: 2.47e5,
     driftCapacity: 0.03,
     colour: '#c98a5e',
   },
@@ -71,8 +80,8 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
     floors: 4,
     footprint: [12, 10],
     floorMass: 120_000,
-    jointStiffness: 2.21e9,
-    jointDamping: 1.2e7,
+    storeyStiffness: 2.434e8,
+    storeyDamping: 1.55e6,
     driftCapacity: 0.022,
     colour: '#9aa7b4',
   },
@@ -82,8 +91,8 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
     floors: 8,
     footprint: [14, 12],
     floorMass: 168_000,
-    jointStiffness: 2.74e9,
-    jointDamping: 1.6e7,
+    storeyStiffness: 3.04e8,
+    storeyDamping: 3.87e6,
     driftCapacity: 0.02,
     colour: '#8694a3',
   },
@@ -93,8 +102,8 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
     floors: 12,
     footprint: [16, 12],
     floorMass: 192_000,
-    jointStiffness: 3.0e9,
-    jointDamping: 1.9e7,
+    storeyStiffness: 3.34e8,
+    storeyDamping: 6.37e6,
     driftCapacity: 0.018,
     colour: '#73818f',
   },

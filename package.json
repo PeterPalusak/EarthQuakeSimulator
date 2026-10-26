@@ -15,16 +15,15 @@
     "calibrate": "vite-node scripts/calibrate.ts"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.14.0",
     "@react-three/drei": "^9.117.3",
     "@react-three/fiber": "^8.17.10",
-    "@react-three/rapier": "^1.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "three": "^0.169.0",
     "zustand": "^5.0.1"
   },
   "devDependencies": {
-    "@dimforge/rapier3d-compat": "^0.14.0",
     "@eslint/js": "^9.13.0",
     "@playwright/test": "^1.48.2",
     "@tailwindcss/vite": "^4.0.0",

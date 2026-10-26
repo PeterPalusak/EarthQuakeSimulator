@@ -5,6 +5,7 @@ import { CameraControls } from './CameraControls'
 import { Ground } from './Ground'
 import { Lighting } from './Lighting'
 import { PerfOverlay } from './PerfOverlay'
+import { PhysicsProvider } from './PhysicsProvider'
 import { PlacementGhost } from './PlacementGhost'
 import { PlacementPlane } from './PlacementPlane'
 
@@ -22,9 +23,12 @@ export function Scene() {
       <fog attach="fog" args={['#9fb8d8', 180, 420]} />
       <Suspense fallback={null}>
         <Lighting />
-        <Ground />
-        <PlacementPlane />
-        <Buildings />
+        {/* PhysicsProvider steps the world once per frame, before its children read it. */}
+        <PhysicsProvider>
+          <Ground />
+          <PlacementPlane />
+          <Buildings />
+        </PhysicsProvider>
         <PlacementGhost />
         <CameraControls />
         <PerfOverlay />
