@@ -20,13 +20,11 @@ import { getRapier } from './rapier'
  *
  * Each floor is a dynamic rigid body with its rotations locked, so a building is a stack of
  * translating masses — a shear building, the standard engineering idealisation. Consecutive
- * floors (and floor 0 to the ground) are tied by two joints:
- *
- *   - a **generic joint** locking LinY and all three angular axes, so floors stay stacked and
- *     axis-aligned, and the building is a cantilever anchored to the ground rather than a
- *     free-floating pile;
- *   - a **zero-rest-length spring joint** across the same anchor pair, giving a linear lateral
- *     restoring force of `storeyStiffness` N/m, solved implicitly by Rapier.
+ * floors, and floor 0 to the ground, are tied by a single **zero-rest-length spring joint**
+ * between the floor interfaces. That gives an isotropic linear restoring force of
+ * `storeyStiffness` N/m against relative displacement in any direction, solved implicitly by
+ * Rapier so it stays stable at the stiffnesses a 0.1 s period demands. Joining floor 0 to the
+ * ground is what makes the building a cantilever rather than a free-floating pile.
  *
  * plan/03-physics.md proposes a spherical joint plus an angular motor spring. That API does
  * not exist in the installed Rapier 0.14: `configureMotorPosition` is declared only on
@@ -35,6 +33,13 @@ import { getRapier } from './rapier'
  * reason. The shear storey above is the same physics expressed in translation instead of
  * rotation: `scripts/spike-joint.ts` measures its free-vibration period as 0.1000 s against an
  * analytic 0.1000 s, and `QuakeWorld.test.ts` pins the periods of all five types.
+ *
+ * A generic joint was tried alongside the spring to lock the vertical axis rigidly, and had to
+ * be abandoned: in these bindings `JointData.generic`'s `axesMask` does not lock the axes it
+ * names. Passing LinY|AngX|AngY|AngZ with an X axis locks Z and leaves Y free, and the locked
+ * axis rotates with the `axis` argument. The visible symptom was a building that swayed along
+ * X and was rigid along Z. `setGravityScale(0)` on intact floors removes the only load the
+ * spring's vertical compliance would otherwise sag under, so the guide joint is not needed.
  *
  * Contacts are disabled between jointed neighbours — they touch face to face, and sliding
  * friction between them would otherwise dissipate the sway as a mystery damping term. Removing
@@ -73,14 +78,8 @@ export interface BuildingInstance {
 }
 
 interface StoreyJoint {
-  guide: ImpulseJoint
   spring: ImpulseJoint
 }
-
-/** Lock vertical translation and all three rotations; leave X and Z free. The numeric
- *  values are Rapier's `JointAxesMask`, inlined so this module needs no value import of the
- *  dynamically loaded namespace. */
-const AXES_MASK = 2 /* LinY */ | 8 /* AngX */ | 16 /* AngY */ | 32 /* AngZ */
 
 export interface QuakeWorldOptions {
   /** Rapier's default of 4 is not enough for a 12-floor stack: it visibly jitters and sinks. */
@@ -98,6 +97,13 @@ export class QuakeWorld {
   private pendingBreaks: { building: BuildingInstance; storey: number }[] = []
   private simulatedTime = 0
   private readonly r = getRapier()
+
+  /**
+   * Called once per *fixed* step, before the step runs. This is where the ground motion is
+   * applied: driving it per rendered frame instead would stair-step the 120 Hz simulation at
+   * whatever the display happens to run at.
+   */
+  onBeforeStep: ((fixedDt: number) => void) | null = null
 
   constructor({ solverIterations = 8, gravity = -9.81 }: QuakeWorldOptions = {}) {
     this.world = new this.r.World({ x: 0, y: gravity, z: 0 })
@@ -177,25 +183,19 @@ export class QuakeWorld {
       const a1 = i === 0 ? { x: ox, y: 0, z: oz } : { x: 0, y: FLOOR_HEIGHT / 2, z: 0 }
       const a2 = { x: 0, y: -FLOOR_HEIGHT / 2, z: 0 }
 
-      const guide = this.world.createImpulseJoint(
-        this.r.JointData.generic(a1, a2, { x: 1, y: 0, z: 0 }, AXES_MASK),
-        lower,
-        bodies[i],
-        true,
-      )
-      guide.setContactsEnabled(false)
-
       const spring = this.world.createImpulseJoint(
-        this.r.JointData.spring(0, spec.storeyStiffness, spec.storeyDamping, a1, a2),
+        // Damping is 0 here and applied explicitly in `applyStoreyDamping` instead: the
+        // spring joint's own damping term acts only along its motor axis (local X), so a
+        // building shaken along Z would ring essentially forever while X settled normally.
+        this.r.JointData.spring(0, spec.storeyStiffness, 0, a1, a2),
         lower,
         bodies[i],
         true,
       )
-      // Both joints must disable contacts: Rapier keeps the pair colliding if any joint
-      // between them allows it, and sliding friction across the floor interface would then
-      // eat the sway and leave the building stuck at an offset.
+      // Jointed neighbours touch face to face; sliding friction across that interface would
+      // eat the sway and leave the building stuck at an offset rather than returning upright.
       spring.setContactsEnabled(false)
-      joints.push({ guide, spring })
+      joints.push({ spring })
     }
 
     const building: BuildingInstance = {
@@ -216,9 +216,7 @@ export class QuakeWorld {
     const b = this.buildings.get(instanceId)
     if (!b) return
     for (const j of b.joints) {
-      if (!j) continue
-      this.world.removeImpulseJoint(j.guide, false)
-      this.world.removeImpulseJoint(j.spring, false)
+      if (j) this.world.removeImpulseJoint(j.spring, false)
     }
     for (const body of b.bodies) this.world.removeRigidBody(body)
     this.buildings.delete(instanceId)
@@ -251,6 +249,9 @@ export class QuakeWorld {
     let steps = 0
     while (this.accumulator >= FIXED_TIMESTEP && steps < MAX_STEPS_PER_FRAME) {
       this.applyPendingBreaks()
+      this.onBeforeStep?.(FIXED_TIMESTEP)
+      this.resetForces()
+      this.applyStoreyDamping()
       this.world.step()
       this.simulatedTime += FIXED_TIMESTEP
       // Sample drift every step: peaks often fall between rendered frames, and missing them
@@ -265,6 +266,9 @@ export class QuakeWorld {
   /** One fixed step, for the headless tests and the calibration script. */
   stepOnce() {
     this.applyPendingBreaks()
+    this.onBeforeStep?.(FIXED_TIMESTEP)
+    this.resetForces()
+    this.applyStoreyDamping()
     this.world.step()
     this.simulatedTime += FIXED_TIMESTEP
     this.sampleDrift()
@@ -285,6 +289,43 @@ export class QuakeWorld {
         ? { x: this.ground.translation().x + b.origin[0], z: this.ground.translation().z + b.origin[1] }
         : b.bodies[i - 1].translation()
     return Math.hypot(upper.x - lower.x, upper.z - lower.z) / FLOOR_HEIGHT
+  }
+
+  /**
+   * Viscous damping across every intact storey, applied as an equal and opposite force pair
+   * proportional to the relative velocity of the two floors.
+   *
+   * Explicit integration is safe for a damper in a way it is not for a stiff spring: the
+   * stability limit is `c * dt / m < 2`, and the worst case here is about 0.05.
+   */
+  private applyStoreyDamping() {
+    for (const b of this.buildings.values()) {
+      // Explicit damping overshoots — and can blow the solver up — once `c * dt / m` passes
+      // ~1. Capping it there turns a bad coefficient into a merely over-damped building
+      // rather than a crash inside the WASM step.
+      const cMax = b.spec.floorMass / FIXED_TIMESTEP
+      const c = Math.min(b.spec.storeyDamping, cMax)
+      for (let i = 0; i < b.bodies.length; i++) {
+        if (!b.joints[i]) continue
+        const upper = b.bodies[i]
+        const lower = i === 0 ? this.ground : b.bodies[i - 1]
+        const vu = upper.linvel()
+        const vl = lower.linvel()
+        const fx = -c * (vu.x - vl.x)
+        const fy = -c * (vu.y - vl.y)
+        const fz = -c * (vu.z - vl.z)
+        upper.addForce({ x: fx, y: fy, z: fz }, false)
+        // The ground is kinematic — pushing back on it would do nothing anyway.
+        if (i > 0) lower.addForce({ x: -fx, y: -fy, z: -fz }, false)
+      }
+    }
+  }
+
+  /** Rapier's force accumulator persists across steps until reset, so clear it every step. */
+  private resetForces() {
+    for (const b of this.buildings.values()) {
+      for (const body of b.bodies) body.resetForces(false)
+    }
   }
 
   private sampleDrift() {
@@ -308,7 +349,6 @@ export class QuakeWorld {
     for (const { building, storey } of this.pendingBreaks) {
       const joint = building.joints[storey]
       if (!joint) continue
-      this.world.removeImpulseJoint(joint.guide, true)
       this.world.removeImpulseJoint(joint.spring, true)
       building.joints[storey] = null
       // Everything from here up is now free debris: let it rotate and collide again.

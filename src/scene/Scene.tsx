@@ -8,6 +8,7 @@ import { PerfOverlay } from './PerfOverlay'
 import { PhysicsProvider } from './PhysicsProvider'
 import { PlacementGhost } from './PlacementGhost'
 import { PlacementPlane } from './PlacementPlane'
+import { QuakeDriver } from './QuakeDriver'
 
 export function Scene() {
   return (
@@ -25,6 +26,7 @@ export function Scene() {
         <Lighting />
         {/* PhysicsProvider steps the world once per frame, before its children read it. */}
         <PhysicsProvider>
+          <QuakeDriver />
           <Ground />
           <PlacementPlane />
           <Buildings />

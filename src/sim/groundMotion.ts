@@ -74,6 +74,12 @@ export const MIN_DURATION = 5
 export const MAX_DURATION = 60
 /** Beyond this the visual reads as the world sliding rather than shaking. */
 export const MAX_DISPLACEMENT = 0.5
+/**
+ * High-pass corner for the integration, in Hz. Standard practice for real accelerograms.
+ * Well below the 0.83 Hz natural frequency of the tallest building, so nothing a structure
+ * responds to is removed — only the sub-0.1 Hz drift that double integration invents.
+ */
+export const HIGH_PASS_HZ = 0.1
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
@@ -162,6 +168,63 @@ export function envelope(t: number, duration: number): number {
   if (t < t1) return (t / t1) ** 2
   if (t <= t2) return 1
   return Math.exp((-3 * (t - t2)) / (duration - t2))
+}
+
+/**
+ * Zero-phase second-order Butterworth high-pass, applied forward then backward.
+ *
+ * This is the step that makes double integration usable. Acceleration noise integrates to
+ * displacement with a 1/f² gain, so the lowest frequency a record can resolve — about
+ * 1/duration, so 0.03 Hz for a 35 s record — ends up dominating the displacement entirely. The
+ * symptom is a *distant, barely-felt* quake producing the same half-metre of ground travel as
+ * a devastating near one, because both saturate the displacement clamp.
+ *
+ * Real accelerograms are routinely high-pass filtered at 0.05–0.1 Hz for exactly this reason,
+ * and plan/04-ground-motion.md names it as the alternative to polynomial baseline correction.
+ * It is the better one: a quadratic fit cannot remove 0.03 Hz content, only tilt.
+ *
+ * Running the filter in both directions cancels its phase shift, so the waveform is not
+ * smeared in time — which matters, because the structures downstream respond to phase.
+ */
+function highPass(data: Float32Array, dt: number, cutoffHz: number): Float32Array {
+  const nyquist = 0.5 / dt
+  if (cutoffHz >= nyquist * 0.9) return data
+
+  // Bilinear transform of a 2nd-order Butterworth high-pass.
+  const w = Math.tan((Math.PI * cutoffHz) / (1 / dt))
+  const w2 = w * w
+  const r = Math.SQRT2
+  const norm = 1 / (1 + r * w + w2)
+  const b0 = norm
+  const b1 = -2 * norm
+  const b2 = norm
+  const a1 = 2 * (w2 - 1) * norm
+  const a2 = (1 - r * w + w2) * norm
+
+  const pass = (input: Float32Array, reverse: boolean) => {
+    const n = input.length
+    const out = new Float32Array(n)
+    let x1 = 0
+    let x2 = 0
+    let y1 = 0
+    let y2 = 0
+    for (let k = 0; k < n; k++) {
+      const i = reverse ? n - 1 - k : k
+      const x0 = input[i]
+      const y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+      x2 = x1
+      x1 = x0
+      y2 = y1
+      y1 = y0
+      out[i] = y0
+    }
+    return out
+  }
+
+  const forward = pass(data, false)
+  const both = pass(forward, true)
+  data.set(both)
+  return data
 }
 
 /** Cumulative trapezoidal integration, in place into `out`. */
@@ -322,10 +385,12 @@ export function generateGroundMotion(params: QuakeParams): GroundMotion {
   const vel = new Float32Array(samples)
   for (const axis of ['x', 'y', 'z'] as const) {
     integrate(acc[axis], dt, vel)
-    // Velocity drifts too, and an uncorrected velocity baseline becomes a ramp in
-    // displacement that no quadratic fit can fully remove.
-    baselineCorrect(vel)
+    // Filter at each stage: the 1/f gain of each integration re-grows low-frequency content,
+    // so filtering only at the end lets the velocity ramp dominate the displacement.
+    highPass(vel, dt, HIGH_PASS_HZ)
     integrate(vel, dt, disp[axis])
+    highPass(disp[axis], dt, HIGH_PASS_HZ)
+    // The filter leaves a small residual at the very ends; a tilt removal pins them to zero.
     baselineCorrect(disp[axis])
   }
 

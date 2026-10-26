@@ -1,6 +1,7 @@
 import { Scene } from './scene/Scene'
 import { BuildingPalette } from './ui/BuildingPalette'
 import { MotionDebugPanel } from './ui/MotionDebugPanel'
+import { QuakeButton } from './ui/QuakeButton'
 import { SelectionControls } from './ui/SelectionControls'
 
 export default function App() {
@@ -13,7 +14,7 @@ export default function App() {
         <BuildingPalette />
         <SelectionControls />
         <MotionDebugPanel />
-        {/* right -> phase 5 QuakeButton */}
+        <QuakeButton />
       </div>
     </div>
   )
