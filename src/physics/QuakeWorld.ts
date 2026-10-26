@@ -74,8 +74,13 @@ export interface BuildingInstance {
   joints: (StoreyJoint | null)[]
   /** Peak interstorey drift ratio seen so far, per storey, index matching `joints`. */
   peakDrift: number[]
+  /** Storeys overloaded by a failure above them, and so closer to failing themselves. */
+  weakened: boolean[]
   collapsed: boolean
 }
+
+/** How much of its capacity a storey retains once the floors above have fallen onto it. */
+const WEAKENED_CAPACITY = 0.5
 
 interface StoreyJoint {
   spring: ImpulseJoint
@@ -85,6 +90,8 @@ export interface QuakeWorldOptions {
   /** Rapier's default of 4 is not enough for a 12-floor stack: it visibly jitters and sinks. */
   solverIterations?: number
   gravity?: number
+  /** Let storeys fail when they exceed their drift capacity. On by default. */
+  collapse?: boolean
 }
 
 export class QuakeWorld {
@@ -105,7 +112,12 @@ export class QuakeWorld {
    */
   onBeforeStep: ((fixedDt: number) => void) | null = null
 
-  constructor({ solverIterations = 8, gravity = -9.81 }: QuakeWorldOptions = {}) {
+  /** Whether exceeding `driftCapacity` tears a storey out. Off in the period-calibration
+   *  tests, where a building is deliberately pushed hard and must survive to be measured. */
+  collapseEnabled: boolean
+
+  constructor({ solverIterations = 8, gravity = -9.81, collapse = true }: QuakeWorldOptions = {}) {
+    this.collapseEnabled = collapse
     this.world = new this.r.World({ x: 0, y: gravity, z: 0 })
     this.world.timestep = FIXED_TIMESTEP
     this.world.numSolverIterations = solverIterations
@@ -206,6 +218,7 @@ export class QuakeWorld {
       bodies,
       joints,
       peakDrift: new Array(spec.floors).fill(0),
+      weakened: new Array(spec.floors).fill(false),
       collapsed: false,
     }
     this.buildings.set(instanceId, building)
@@ -334,6 +347,10 @@ export class QuakeWorld {
         if (!b.joints[i]) continue
         const drift = this.storeyDrift(b, i)
         if (drift > b.peakDrift[i]) b.peakDrift[i] = drift
+        const capacity = b.weakened[i]
+          ? b.spec.driftCapacity * WEAKENED_CAPACITY
+          : b.spec.driftCapacity
+        if (this.collapseEnabled && drift > capacity) this.breakStorey(b, i)
       }
     }
   }
@@ -341,6 +358,7 @@ export class QuakeWorld {
   /** Queue a storey failure. Applied between steps — see `pendingBreaks`. */
   breakStorey(building: BuildingInstance, storey: number) {
     if (!building.joints[storey]) return
+    if (this.pendingBreaks.some((p) => p.building === building && p.storey === storey)) return
     this.pendingBreaks.push({ building, storey })
   }
 
@@ -351,12 +369,16 @@ export class QuakeWorld {
       if (!joint) continue
       this.world.removeImpulseJoint(joint.spring, true)
       building.joints[storey] = null
-      // Everything from here up is now free debris: let it rotate and collide again.
+      // Everything from here up is now free debris: let it rotate, fall and collide again.
       for (let i = storey; i < building.bodies.length; i++) {
         building.bodies[i].setEnabledRotations(true, true, true, true)
         building.bodies[i].setGravityScale(1, true)
         building.bodies[i].setLinearDamping(0.1)
       }
+      // The storey below now carries the falling mass above it. Real collapses propagate
+      // downward for exactly this reason — it is what makes a pancake collapse rather than a
+      // clean decapitation. Halving its capacity makes it much more likely to go next.
+      if (storey > 0) building.weakened[storey - 1] = true
       building.collapsed = true
     }
     this.pendingBreaks = []

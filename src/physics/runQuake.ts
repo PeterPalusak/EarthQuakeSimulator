@@ -56,6 +56,8 @@ export interface QuakeOutcome {
 }
 
 export interface RunOptions {
+  /** Let storeys fail when they exceed their drift capacity. On by default. */
+  collapse?: boolean
   /** Extra seconds simulated after the record ends, to let things settle or fall. */
   settleAfter?: number
   /** Called every fixed step with the world, e.g. to drive collapse logic. */
@@ -65,10 +67,10 @@ export interface RunOptions {
 export async function runQuake(
   params: QuakeParams,
   layout: LayoutEntry[],
-  { settleAfter = 2, onStep }: RunOptions = {},
+  { settleAfter = 2, onStep, collapse = true }: RunOptions = {},
 ): Promise<QuakeOutcome> {
   await initRapier()
-  const world = new QuakeWorld()
+  const world = new QuakeWorld({ collapse })
 
   try {
     const instances = layout.map((entry, i) =>

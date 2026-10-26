@@ -4,9 +4,9 @@ import type { BuildingTypeId } from '../sim/buildingSpecs'
 
 /** Shared helpers for the headless physics tests. No renderer, no React. */
 
-export async function headlessWorld() {
+export async function headlessWorld(options: ConstructorParameters<typeof QuakeWorld>[0] = {}) {
   await initRapier()
-  return new QuakeWorld()
+  return new QuakeWorld(options)
 }
 
 export function settle(world: QuakeWorld, seconds = 2) {
@@ -39,7 +39,9 @@ export async function measureFreeVibrationPeriod(type: BuildingTypeId): Promise<
   const damping = spec.storeyDamping
   spec.storeyDamping = 0
 
-  const world = await headlessWorld()
+  // Collapse off: the measurement impulse is deliberately large, and a storey tearing out
+  // mid-measurement would change the structure being measured.
+  const world = await headlessWorld({ collapse: false })
   try {
     const b = world.addBuilding('calib', type, [0, 0])
     settle(world, 2)

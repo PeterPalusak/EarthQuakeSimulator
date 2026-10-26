@@ -72,8 +72,18 @@ export const MIN_PGA_G = 0.005
 export const MAX_PGA_G = 1.5
 export const MIN_DURATION = 5
 export const MAX_DURATION = 60
-/** Beyond this the visual reads as the world sliding rather than shaking. */
-export const MAX_DISPLACEMENT = 0.5
+/**
+ * Hard ceiling on ground displacement, metres. A safety rail against a numerically extreme
+ * record destabilising the solver, not a style control.
+ *
+ * plan/04-ground-motion.md suggests 0.5 m. That turned out to bind across the whole upper half
+ * of the magnitude range, flattening every quake from about M6.5 up to the same intensity, so
+ * nothing could ever be made to collapse: at 0.5 m an M8 at 3 km reaches 1.6 % drift against
+ * the 12-floor block's 1.8 % capacity and stops there. At 1.5 m the clamp stops binding at all
+ * within the slider range, and 1-2 m is in any case what near-field displacements genuinely
+ * reach for a great earthquake.
+ */
+export const MAX_DISPLACEMENT = 1.5
 /**
  * High-pass corner for the integration, in Hz. Standard practice for real accelerograms.
  * Well below the 0.83 Hz natural frequency of the tallest building, so nothing a structure

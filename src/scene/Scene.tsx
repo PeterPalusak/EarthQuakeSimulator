@@ -2,6 +2,7 @@ import { Canvas } from '@react-three/fiber'
 import { Suspense } from 'react'
 import { Buildings } from './Building'
 import { CameraControls } from './CameraControls'
+import { CollapseDust } from './CollapseDust'
 import { Ground } from './Ground'
 import { Lighting } from './Lighting'
 import { PerfOverlay } from './PerfOverlay'
@@ -30,6 +31,7 @@ export function Scene() {
           <Ground />
           <PlacementPlane />
           <Buildings />
+          <CollapseDust />
         </PhysicsProvider>
         <PlacementGhost />
         <CameraControls />

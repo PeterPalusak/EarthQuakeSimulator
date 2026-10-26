@@ -1,28 +1,19 @@
 import { useFrame } from '@react-three/fiber'
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { QuakeWorld } from '../physics/QuakeWorld'
 import { initRapier } from '../physics/rapier'
 import { useQuakeStore } from '../state/quakeStore'
 import { useAppStore } from '../state/store'
+import { usePhysicsStore, usePhysicsWorld } from './physicsAccess'
 
-const PhysicsContext = createContext<QuakeWorld | null>(null)
-
-export const usePhysics = () => useContext(PhysicsContext)
+export const usePhysics = usePhysicsWorld
 
 /**
  * Owns the single `QuakeWorld` and keeps its bodies in sync with the store's `placed` array.
  * Stepping happens here, once per frame, so every consumer sees the same post-step state.
  */
 export function PhysicsProvider({ children }: { children: ReactNode }) {
-  const [world, setWorld] = useState<QuakeWorld | null>(null)
+  const world = usePhysicsWorld()
   const placed = useAppStore((s) => s.placed)
   const resetToken = useQuakeStore((s) => s.resetToken)
   const lastReset = useRef(resetToken)
@@ -33,12 +24,12 @@ export function PhysicsProvider({ children }: { children: ReactNode }) {
     initRapier().then(() => {
       if (disposed) return
       created = new QuakeWorld()
-      setWorld(created)
+      usePhysicsStore.getState().setWorld(created)
     })
     return () => {
       disposed = true
+      usePhysicsStore.getState().setWorld(null)
       created?.dispose()
-      setWorld(null)
     }
   }, [])
 
@@ -66,6 +57,5 @@ export function PhysicsProvider({ children }: { children: ReactNode }) {
     world?.step(delta)
   })
 
-  const value = useMemo(() => world, [world])
-  return <PhysicsContext.Provider value={value}>{children}</PhysicsContext.Provider>
+  return <>{children}</>
 }
