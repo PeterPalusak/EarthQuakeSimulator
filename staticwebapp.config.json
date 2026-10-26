@@ -1,0 +1,16 @@
+{
+  "navigationFallback": { "rewrite": "/index.html" },
+  "mimeTypes": {
+    ".wasm": "application/wasm",
+    ".webmanifest": "application/manifest+json"
+  },
+  "routes": [
+    { "route": "/sw.js", "headers": { "Cache-Control": "no-cache" } },
+    { "route": "/registerSW.js", "headers": { "Cache-Control": "no-cache" } },
+    { "route": "/manifest.webmanifest", "headers": { "Cache-Control": "no-cache" } },
+    {
+      "route": "/assets/*",
+      "headers": { "Cache-Control": "public, max-age=31536000, immutable" }
+    }
+  ]
+}

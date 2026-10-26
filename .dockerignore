@@ -1,0 +1,15 @@
+# Without this the ~400 MB node_modules is uploaded to the build daemon on every build, and a
+# stale host dist/ can be copied into the image and silently override the freshly built one.
+node_modules
+dist
+dev-dist
+.git
+.github
+e2e
+playwright-report
+test-results
+plan
+*.md
+!README.md
+.env*
+*.log
