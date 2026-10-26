@@ -4,7 +4,9 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
+dev-dist/
 *.local
+*.tsbuildinfo
 
 # Test artifacts
 coverage/
