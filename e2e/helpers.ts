@@ -13,7 +13,10 @@ export async function tapGround(page: Page, fx = 0.35, fy = 0.5) {
 }
 
 export async function waitForScene(page: Page) {
-  await page.goto('/')
+  // './', not '/': a GitHub Pages project site is served from a subpath, and an absolute '/'
+  // would resolve against the origin and land on someone else's page. This way the same suite
+  // can be pointed at the deployed site with E2E_BASE_URL.
+  await page.goto('./')
   await expect(page.locator('canvas')).toBeVisible()
   // Rapier is a separate chunk; give it time to download and instantiate.
   await page.waitForTimeout(2000)
