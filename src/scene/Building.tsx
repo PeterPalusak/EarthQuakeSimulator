@@ -5,6 +5,7 @@ import { BUILDING_SPECS, FLOOR_HEIGHT, floorCentreY } from '../sim/buildingSpecs
 import { damageColour } from '../sim/damage'
 import type { PlacedBuilding } from '../sim/placement'
 import { useAppStore } from '../state/store'
+import { FishFingerFloors } from './FishFingerFloors'
 import { usePhysics } from './PhysicsProvider'
 import { UNIT_BOX } from './sharedGeometry'
 
@@ -16,6 +17,10 @@ import { UNIT_BOX } from './sharedGeometry'
  * to red. That is what turns the app from a toy into something that explains a concept: after
  * a quake you can see at a glance *which* storey took the punishment, and it is usually not
  * the one people expect.
+ *
+ * A type with a decorative `appearance` draws its floors separately; the per-floor meshes then
+ * stay as invisible hit boxes, because the decoration is instanced and cannot carry pointer
+ * events of its own.
  */
 export function Building({ building }: { building: PlacedBuilding }) {
   const spec = BUILDING_SPECS[building.type]
@@ -23,6 +28,7 @@ export function Building({ building }: { building: PlacedBuilding }) {
   const [x, z] = building.position
   const world = usePhysics()
   const meshes = useRef<(Mesh | null)[]>([])
+  const clad = spec.appearance === 'fishFingers'
 
   const selectInstance = useAppStore((s) => s.selectInstance)
   const selectedType = useAppStore((s) => s.selectedType)
@@ -30,24 +36,29 @@ export function Building({ building }: { building: PlacedBuilding }) {
 
   // A material per floor so each can carry its own damage tint. Alternating floors are
   // slightly darker so storeys stay readable at a distance without extra geometry.
+  //
+  // When the floors are drawn as cladding these become pure hit boxes: still raycastable —
+  // three skips `visible === false` objects entirely — but writing neither colour nor depth.
   const materials = useMemo(
     () =>
-      Array.from(
-        { length: spec.floors },
-        (_, i) =>
-          new MeshStandardMaterial({
-            color: new Color(spec.colour).multiplyScalar(i % 2 === 0 ? 1 : 0.9),
-            roughness: 0.85,
-          }),
+      Array.from({ length: spec.floors }, (_, i) =>
+        clad
+          ? new MeshStandardMaterial({
+              transparent: true,
+              opacity: 0,
+              depthWrite: false,
+              colorWrite: false,
+            })
+          : new MeshStandardMaterial({
+              color: new Color(spec.colour).multiplyScalar(i % 2 === 0 ? 1 : 0.9),
+              roughness: 0.85,
+            }),
       ),
-    [spec],
+    [spec, clad],
   )
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials])
 
-  const undamaged = useMemo(
-    () => materials.map((m) => m.color.clone()),
-    [materials],
-  )
+  const undamaged = useMemo(() => materials.map((m) => m.color.clone()), [materials])
   const tint = useRef(new Color())
 
   useFrame(() => {
@@ -65,6 +76,8 @@ export function Building({ building }: { building: PlacedBuilding }) {
       const crushed = instance.joints[i] === null
       mesh.scale.set(w, FLOOR_HEIGHT * (crushed ? 0.3 : 1), d)
 
+      if (clad) continue // the cladding does its own tinting
+
       const drift = instance.peakDrift[i] ?? 0
       if (drift <= 0) {
         materials[i].color.copy(undamaged[i])
@@ -79,14 +92,18 @@ export function Building({ building }: { building: PlacedBuilding }) {
 
   return (
     <group>
+      {clad && (
+        <FishFingerFloors instanceId={building.instanceId} spec={spec} />
+      )}
+
       {Array.from({ length: spec.floors }, (_, i) => (
         <mesh
           key={i}
           ref={(m) => (meshes.current[i] = m)}
           geometry={UNIT_BOX}
           material={materials[i]}
-          castShadow
-          receiveShadow
+          castShadow={!clad}
+          receiveShadow={!clad}
           // Starting pose; from the first frame the physics world drives it.
           position={[x, floorCentreY(i), z]}
           scale={[w, FLOOR_HEIGHT, d]}

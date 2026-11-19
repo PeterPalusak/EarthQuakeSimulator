@@ -34,7 +34,7 @@ export function lateralOffset(b: BuildingInstance, i: number): number {
  * lateral impulse. Damping is zeroed for the measurement — it would otherwise skew the period.
  */
 export async function measureFreeVibrationPeriod(type: BuildingTypeId): Promise<number> {
-  const { BUILDING_SPECS, targetPeriod } = await import('../sim/buildingSpecs')
+  const { BUILDING_SPECS, specTargetPeriod } = await import('../sim/buildingSpecs')
   const spec = BUILDING_SPECS[type]
   const damping = spec.storeyDamping
   spec.storeyDamping = 0
@@ -50,7 +50,7 @@ export async function measureFreeVibrationPeriod(type: BuildingTypeId): Promise<
     roof.applyImpulse({ x: spec.floorMass * 0.2, y: 0, z: 0 }, true)
 
     const xs: number[] = []
-    const steps = Math.round((targetPeriod(spec.floors) * 12) / FIXED_TIMESTEP)
+    const steps = Math.round((specTargetPeriod(spec) * 12) / FIXED_TIMESTEP)
     for (let i = 0; i < steps; i++) {
       world.stepOnce()
       xs.push(roof.translation().x)

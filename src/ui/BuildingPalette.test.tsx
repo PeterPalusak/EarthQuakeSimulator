@@ -11,12 +11,12 @@ beforeEach(resetAppStore)
 afterEach(cleanup)
 
 describe('BuildingPalette', () => {
-  it('renders exactly five building buttons, one per type', () => {
+  it('renders one button per building type', () => {
     render(<BuildingPalette />)
     for (const spec of BUILDING_LIST) {
       expect(screen.getByRole('button', { name: spec.label })).toBeInTheDocument()
     }
-    expect(screen.getAllByRole('button', { pressed: false })).toHaveLength(5)
+    expect(screen.getAllByRole('button', { pressed: false })).toHaveLength(BUILDING_LIST.length)
   })
 
   it('selecting a type sets selectedType in the store', async () => {

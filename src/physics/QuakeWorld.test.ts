@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUILDING_LIST, FLOOR_HEIGHT, floorCentreY, targetPeriod } from '../sim/buildingSpecs'
+import {
+  BUILDING_LIST,
+  CONVENTIONAL_LIST,
+  FLOOR_HEIGHT,
+  floorCentreY,
+  specTargetPeriod,
+} from '../sim/buildingSpecs'
 import { QuakeWorld } from './QuakeWorld'
 import {
   headlessWorld,
@@ -48,7 +54,7 @@ describe('stability at rest', () => {
   it('all five types stand up with no jitter, drift or NaN', async () => {
     world = await headlessWorld()
     const placed = BUILDING_LIST.map((spec, i) =>
-      world!.addBuilding(spec.id, spec.id, [i * 25 - 50, 0]),
+      world!.addBuilding(spec.id, spec.id, [i * 25 - 62, 0]),
     )
     run(world, 4)
 
@@ -77,10 +83,10 @@ describe('period calibration — the key test', () => {
   // The core claim of the simulation: a building's natural period is ~0.1 s per storey, which
   // is why the tower and the house respond completely differently to the same quake.
   it.each(BUILDING_LIST)(
-    '$label sways with a period of ~0.1 s per floor',
+    '$label sways with the period it is calibrated to',
     async (spec) => {
       const period = await measureFreeVibrationPeriod(spec.id)
-      const target = targetPeriod(spec.floors)
+      const target = specTargetPeriod(spec)
       expect(period).toBeGreaterThan(0)
       expect(Math.abs(period - target) / target).toBeLessThan(0.1) // within 10 %
     },
@@ -92,8 +98,8 @@ describe('relative response', () => {
   it('under an identical impulse, taller buildings sway further', async () => {
     const peaks: number[] = []
 
-    for (const spec of BUILDING_LIST) {
-      const w = await headlessWorld()
+    for (const spec of CONVENTIONAL_LIST) {
+      const w = await headlessWorld({ collapse: false })
       const b = w.addBuilding('x', spec.id, [0, 0])
       settle(w, 1)
 

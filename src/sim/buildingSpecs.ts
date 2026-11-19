@@ -1,5 +1,5 @@
 /**
- * The five building types from Description.md §2, as plain data.
+ * The building types, as plain data: the five from Description.md §2, plus one novelty.
  *
  * This is a `src/sim` file: no imports, no Three.js, no Rapier. It is the shared vocabulary
  * for every later phase.
@@ -15,6 +15,18 @@ export type BuildingTypeId =
   | 'smallBlock'
   | 'mediumBlock'
   | 'largeBlock'
+  | 'fishFingerHouse'
+
+/** The five conventional types, which form a ladder of increasing height and decreasing
+ *  ductility. Invariants that only make sense for real construction are asserted over these,
+ *  not over the novelty types. */
+export const CONVENTIONAL_TYPES: BuildingTypeId[] = [
+  'smallHouse',
+  'largeHouse',
+  'smallBlock',
+  'mediumBlock',
+  'largeBlock',
+]
 
 export interface BuildingSpec {
   id: BuildingTypeId
@@ -36,6 +48,22 @@ export interface BuildingSpec {
   /** Interstorey drift ratio at failure — phase 6. */
   driftCapacity: number
   colour: string
+  /**
+   * Multiplies the "0.1 s per storey" rule when choosing this type's natural period.
+   *
+   * 1 (the default) for anything built out of a normal structural material. A value above 1
+   * means the structure is floppier than its height suggests, so it behaves like a taller
+   * building and resonates with longer-period, more distant quakes.
+   */
+  periodFactor?: number
+  /** Marks a type that is not real construction, so the engineering invariants skip it. */
+  novelty?: boolean
+  /**
+   * How a floor is drawn. `solid` (the default) is one box per floor. `fishFingers` draws each
+   * floor as a course of separate bars, laid crosswise to the course below. Purely cosmetic —
+   * the collider is one box per floor either way.
+   */
+  appearance?: 'solid' | 'fishFingers'
 }
 
 /**
@@ -107,27 +135,62 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
     driftCapacity: 0.018,
     colour: '#73818f',
   },
+
+  /**
+   * A tower of fish fingers. Deliberately the same size as the medium block — 8 floors on the
+   * same 14 x 12 m footprint — so the two can stand side by side and the only difference is
+   * what they are made of. Everything else follows from that:
+   *
+   * - **Light.** Breaded fish runs about 250 kg/m² of floor, a quarter of a concrete block.
+   * - **Floppy.** `periodFactor` 1.6 gives it a 1.28 s period instead of the medium block's
+   *   0.8 s, so despite being the same height it sways like a 13-storey building and comes
+   *   alive under the distant, low-frequency quakes that the medium block shrugs off.
+   * - **Brittle.** It comes apart at 0.9 % drift, under half what the real blocks tolerate —
+   *   a level at which a concrete frame has done no more than crack.
+   *
+   * Net effect, measured rather than asserted: it survives the default medium quake, and
+   * collapses reliably by M7 at 10 km, which the identically-sized concrete block shrugs off.
+   * The structurally interesting part is that floppy and brittle pull in opposite directions:
+   * being soft keeps the forces down, being crumbly means it needs very little to fail.
+   */
+  fishFingerHouse: {
+    id: 'fishFingerHouse',
+    label: 'Fish finger house',
+    floors: 8,
+    footprint: [14, 12],
+    floorMass: 42_000,
+    storeyStiffness: 2.97e7,
+    storeyDamping: 6.05e5,
+    driftCapacity: 0.009,
+    colour: '#e0a447',
+    periodFactor: 1.6,
+    novelty: true,
+    appearance: 'fishFingers',
+  },
 }
 
-/** Palette order: shortest first, which is also the order in Description.md §2. */
-export const BUILDING_ORDER: BuildingTypeId[] = [
-  'smallHouse',
-  'largeHouse',
-  'smallBlock',
-  'mediumBlock',
-  'largeBlock',
-]
+/** Palette order: the Description's ladder shortest-first, then the novelties. */
+export const BUILDING_ORDER: BuildingTypeId[] = [...CONVENTIONAL_TYPES, 'fishFingerHouse']
 
 export const BUILDING_LIST: BuildingSpec[] = BUILDING_ORDER.map((id) => BUILDING_SPECS[id])
+
+/** The five types from the requirement, in ladder order. */
+export const CONVENTIONAL_LIST: BuildingSpec[] = CONVENTIONAL_TYPES.map(
+  (id) => BUILDING_SPECS[id],
+)
 
 /**
  * Rule of thumb used by structural engineers: T ~ 0.1 s per storey.
  *
  * The most consequential line in this file. It is why the 12-floor block (T ~ 1.2 s) and the
  * house (T ~ 0.1 s) respond completely differently to the same quake. The phase 3 calibration
- * tunes `jointStiffness` until free vibration matches it.
+ * tunes `storeyStiffness` until free vibration matches it.
  */
 export const targetPeriod = (floors: number) => 0.1 * floors
+
+/** The period a given type is calibrated to, including any `periodFactor`. */
+export const specTargetPeriod = (spec: BuildingSpec) =>
+  targetPeriod(spec.floors) * (spec.periodFactor ?? 1)
 
 export const buildingHeight = (spec: BuildingSpec) => spec.floors * FLOOR_HEIGHT
 

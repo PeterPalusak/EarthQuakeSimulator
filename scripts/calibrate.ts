@@ -3,7 +3,8 @@
  *
  * For each type: build the stack headlessly, push the roof, let it ring with damping off,
  * measure the free-vibration period between successive peaks, and bisect on stiffness until
- * the period is within tolerance of `targetPeriod(floors)` = 0.1 s per storey.
+ * the period is within tolerance of `specTargetPeriod(spec)` — 0.1 s per storey, times any
+ * periodFactor the type carries.
  *
  * Run with `npm run calibrate`, then paste the printed numbers into src/sim/buildingSpecs.ts.
  * The *assertion* version of this lives in src/physics/QuakeWorld.test.ts so later tuning
@@ -11,7 +12,7 @@
  */
 import { QuakeWorld, FIXED_TIMESTEP } from '../src/physics/QuakeWorld'
 import { initRapier } from '../src/physics/rapier'
-import { BUILDING_LIST, BUILDING_SPECS, targetPeriod } from '../src/sim/buildingSpecs'
+import { BUILDING_LIST, BUILDING_SPECS, specTargetPeriod } from '../src/sim/buildingSpecs'
 
 await initRapier()
 
@@ -32,7 +33,7 @@ function measurePeriod(type: keyof typeof BUILDING_SPECS, stiffness: number): nu
   const roof = b.bodies[b.bodies.length - 1]
   roof.applyImpulse({ x: spec.floorMass * 0.2, y: 0, z: 0 }, true)
 
-  const target = targetPeriod(spec.floors)
+  const target = specTargetPeriod(spec)
   const steps = Math.ceil((target * 12) / FIXED_TIMESTEP)
   const xs: number[] = []
   for (let i = 0; i < steps; i++) {
@@ -61,7 +62,7 @@ console.log('type            floors  target T   measured T   stiffness (N/m)   d
 console.log('-'.repeat(84))
 
 for (const spec of BUILDING_LIST) {
-  const target = targetPeriod(spec.floors)
+  const target = specTargetPeriod(spec)
 
   // T scales as 1/sqrt(k), so a fixed-point iteration on k *= (T_measured / T_target)^2
   // converges in two or three passes — far more robust than bisecting on a noisy measurement.

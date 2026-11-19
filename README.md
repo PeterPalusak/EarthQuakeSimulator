@@ -41,6 +41,19 @@ Damage is measured as interstorey drift ratio, the standard engineering damage m
 are tinted by the peak drift they took, and a storey that exceeds its capacity loses its joint
 and its height — so the mass above drops through it and the building pancakes.
 
+### The fish finger house
+
+Alongside the five types the brief asks for, there is a tower built out of fish fingers. It is
+deliberately the same size as the medium block — eight floors on the same 14 × 12 m footprint —
+so the two can stand side by side and the only thing that differs is what they are made of:
+a quarter of the mass, a natural period of 1.28 s rather than 0.8 s because it is floppier than
+its height implies, and a drift capacity of 0.9 % against the block's 2 %.
+
+The result is worth putting next to each other and shaking: it rides out the default medium
+quake, suffers more than the block under the distant low-frequency rumble precisely because it
+is floppy, and pancakes reliably at M7 at 10 km — which the concrete block shrugs off with
+light damage. `src/physics/fishFingerHouse.test.ts` pins all of that.
+
 ---
 
 ## Running it locally
@@ -130,9 +143,18 @@ Pages needs an override**, because a project site is served from a subpath — t
 `VITE_BASE=/EarthQuakeSimulator/`. Getting this wrong gives a blank page with a 404 on every
 asset and no useful error, and it is the most likely first-deploy failure.
 
-To go live on GitHub Pages: enable Pages in the repository settings with source **GitHub
-Actions**, and push to `main`. The workflow lints, tests and builds before it publishes, so a
-broken physics regression blocks the deploy.
+### Going live on GitHub Pages
+
+**Enable Pages first, once:** *Settings → Pages → Build and deployment → Source:* **GitHub
+Actions**. Until that is done there is no Pages site to publish into, and the deploy job fails
+with a 404 — *"Get Pages site failed"* — while the build above it passes, which looks like a
+broken pipeline rather than a missing setting. The workflow cannot do this for you: creating a
+Pages site needs admin rights the Actions token is not granted.
+
+Then push to `main`. The workflow is deliberately two jobs: `build` lints, tests and builds the
+artefact and knows nothing about Pages, so a hosting problem can never make the code look
+broken; `deploy` publishes. If `deploy` is the red one, look at the Pages settings, not the
+code.
 
 ### In a container
 
