@@ -85,7 +85,10 @@ export function CollapseDust() {
           const key = `${b.instanceId}:${i}`
           if (seen.current.has(key)) continue
           seen.current.add(key)
-          const t = b.bodies[i].translation()
+          // joints index LINKS, which since the structure model generalised no longer match
+          // bodies one for one — a bridge has eleven links across nine nodes. Burst at the
+          // member the failed link was holding, not at bodies[i], which may not exist.
+          const t = b.bodies[b.links[i].to].translation()
           spawn(t.x, t.y, t.z, Math.max(...b.spec.footprint) / 2)
         }
       }

@@ -22,10 +22,14 @@ Three decisions do all the work:
 is driven by a generated displacement record. Buildings are dynamic bodies anchored to it and
 respond through their own inertia. No force is ever applied to a building directly.
 
-**Buildings are stacks of floors, not blocks.** Each floor is its own rigid body, tied to the
-one below by a calibrated lateral spring. A building's natural period therefore comes out at
-roughly 0.1 s per storey — so a 12-floor block sways with a 1.2 s period and a house with a
-0.1 s one, and they respond completely differently to the same quake.
+**Structures are assemblies, not blocks.** Every structure is boxes tied together by calibrated
+springs: a building is a vertical chain of floors, a road a horizontal chain of slabs, a bridge
+a deck on piers with unsupported spans between them. A building's natural period comes out at
+roughly 0.1 s per storey, so a 12-floor block sways with a 1.2 s period and a house with a
+0.1 s one, and they respond completely differently to the same quake. Damage is deformation
+across a member, so the same measure covers a column shearing and a deck sagging; collapse
+drops whatever has lost its path back to the ground, worked out by reachability rather than by
+anything hard-coded about "up".
 
 **The quake is a real accelerogram recipe.** Seeded Gaussian noise, shaped by a Kanai–Tajimi
 soil filter, multiplied by a Jennings envelope, scaled to the peak ground acceleration a
@@ -40,6 +44,17 @@ punishes short stiff houses. Try the "Distant rumble" and "Sharp & close" preset
 Damage is measured as interstorey drift ratio, the standard engineering damage measure. Floors
 are tinted by the peak drift they took, and a storey that exceeds its capacity loses its joint
 and its height — so the mass above drops through it and the building pancakes.
+
+### What you can build
+
+Nine types. The five from the brief — a house, a larger house, and 4-, 8- and 12-floor blocks
+of flats — plus a **road**, an ordinary **bridge** on piers, a **UFO bridge** modelled on
+Bratislava's Most SNP with its saucer on a leaning pylon, a **TV tower** after Kamzík, and a
+tower built out of **fish fingers**. Anything longer than it is wide can be turned in 90°
+steps with the rotate button, or `R`.
+
+The quake controls carry six presets, from a moderate local event up to a near-field M8 and a
+minute-long megathrust.
 
 ### The fish finger house
 
@@ -185,10 +200,22 @@ Both predate the code. Where the code departs from them — the joint model in p
 coefficients and envelope in phase 4, the displacement clamp in phase 6 — the reason is recorded
 in a comment at the point of departure and in the commit that made it.
 
-## Known simplification
+## Known simplifications
 
 Rapier is a rigid-body engine, not a finite-element structural solver. Floors are rigid boxes
 with lumped storey stiffness, so this is a *plausible and physically grounded demonstration* of
-resonance and collapse, not an engineering-grade prediction. For seeing why tall and short
+resonance and collapse, not an engineering-grade prediction.
+
+Two deliberate departures worth knowing about:
+
+- **The ground is shaken at four times life size** (`MOTION_GAIN`). An honest 0.2 g quake moves
+  the ground a few centimetres, which against a 36 m building is nearly invisible. The
+  structures genuinely respond to the amplified motion — it is a bigger earthquake, not a
+  camera trick — and `storeyDrift` divides the gain back out before judging damage, so the
+  drift capacities stay real engineering numbers. The readout says `shown 4×` rather than
+  letting the g figure imply motion that does not match the screen.
+- **The UFO bridge's stay cables are drawn, not simulated.** Modelling each stay as its own
+  member over-constrains the deck and it slowly stretches itself apart under no load at all.
+  The pylon carries the deck where the two actually meet. For seeing why tall and short
 buildings respond differently to different earthquakes, it is the right level of fidelity, and
 it runs at 60 fps on a phone.

@@ -110,6 +110,14 @@ export class QuakeWorld {
   /** Joint removals are queued and applied between steps — mutating the joint set during a
    *  solver step can crash Rapier or corrupt the world. */
   private pendingBreaks: { building: BuildingInstance; storey: number }[] = []
+  /**
+   * Loose rubble thrown off by failures, oldest first.
+   *
+   * Capped and recycled: a user who runs quake after quake without resetting would otherwise
+   * accumulate bodies until the phone's framerate collapses along with the buildings. The cap
+   * is the budget that matters, not the visual.
+   */
+  private debris: RigidBody[] = []
   private simulatedTime = 0
   private readonly r = getRapier()
 
@@ -269,6 +277,7 @@ export class QuakeWorld {
 
   clear() {
     for (const id of [...this.buildings.keys()]) this.removeBuilding(id)
+    this.clearRubble()
   }
 
   /** Drives the ground. Kinematic *next* translation, so Rapier derives the implied velocity
@@ -503,6 +512,8 @@ export class QuakeWorld {
         if (half) collider.setHalfExtents({ x: half.x, y: half.y * 0.3, z: half.z })
       }
 
+      this.spawnRubble(building, link.to)
+
       // Whatever was carrying this member now carries the load it was taking. Real collapses
       // propagate toward the support for exactly this reason — it is what makes a pancake
       // rather than a clean decapitation. Halving capacity makes those links likely to go next.
@@ -524,6 +535,69 @@ export class QuakeWorld {
         b.bodies[i].setLinearDamping(0.1)
       }
     }
+  }
+
+  /** Chunks of masonry per failure, and the ceiling on how many may exist at once. */
+  private static readonly RUBBLE_PER_FAILURE = 5
+  private static readonly MAX_RUBBLE = 110
+
+  /**
+   * Throws a handful of chunks out of a failing member.
+   *
+   * The structural bodies themselves already fall and pile up — this is the masonry that
+   * comes off them, which is what makes a collapse read as a building breaking rather than as
+   * a stack of boxes being rearranged.
+   */
+  private spawnRubble(b: BuildingInstance, node: number) {
+    const body = b.bodies[node]
+    const t = body.translation()
+    const half = b.nodes[node].half
+    // Absolute, not a fraction of the member: scaling off a bridge deck gave 3.8 m "chunks".
+    const size = Math.min(0.8, Math.max(0.25, Math.min(half[0], half[2]) * 0.1))
+
+    for (let i = 0; i < QuakeWorld.RUBBLE_PER_FAILURE; i++) {
+      if (this.debris.length >= QuakeWorld.MAX_RUBBLE) {
+        const oldest = this.debris.shift()
+        if (oldest) this.world.removeRigidBody(oldest)
+      }
+      const a = (i / QuakeWorld.RUBBLE_PER_FAILURE) * Math.PI * 2
+      // Spawned clear of the member, not inside it. Overlapping colliders make Rapier resolve
+      // a deep penetration on the first step, and five chunks inside a bridge deck punched it
+      // five metres down — the spawn explosion the whole placement margin exists to avoid.
+      const clearance = size * 1.6
+      const chunk = this.world.createRigidBody(
+        this.r.RigidBodyDesc.dynamic()
+          .setTranslation(
+            t.x + Math.cos(a) * (half[0] + clearance),
+            t.y + (i % 2 ? 1 : -1) * (half[1] + clearance),
+            t.z + Math.sin(a) * (half[2] + clearance),
+          )
+          .setLinvel(Math.cos(a) * 3.5, 2 + (i % 3), Math.sin(a) * 3.5)
+          .setAngvel({ x: a, y: a * 2, z: -a })
+          .setCcdEnabled(true)
+          .setLinearDamping(0.15)
+          .setAngularDamping(0.4),
+      )
+      this.world.createCollider(
+        this.r.ColliderDesc.cuboid(size, size * 0.65, size)
+          .setMass(Math.max(b.spec.floorMass * 0.004, 40))
+          .setFriction(0.9)
+          .setRestitution(0.1),
+        chunk,
+      )
+      this.debris.push(chunk)
+    }
+  }
+
+  /** Live rubble, for the renderer. */
+  rubble(): readonly RigidBody[] {
+    return this.debris
+  }
+
+  /** Clears the rubble without touching the structures — used on reset. */
+  clearRubble() {
+    for (const chunk of this.debris) this.world.removeRigidBody(chunk)
+    this.debris = []
   }
 
   readFloor(b: BuildingInstance, i: number, out: FloorState): FloorState {

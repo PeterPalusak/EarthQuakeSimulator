@@ -11,6 +11,7 @@ import { PhysicsProvider } from './PhysicsProvider'
 import { PlacementGhost } from './PlacementGhost'
 import { PlacementPlane } from './PlacementPlane'
 import { QuakeDriver } from './QuakeDriver'
+import { Rubble } from './Rubble'
 
 export function Scene() {
   return (
@@ -33,6 +34,7 @@ export function Scene() {
           <PlacementPlane />
           <Buildings />
           <CollapseDust />
+          <Rubble />
         </PhysicsProvider>
         <EpicentreMarker />
         <PlacementGhost />

@@ -23,7 +23,8 @@ export async function waitForScene(page: Page) {
 }
 
 export async function placeBuilding(page: Page, label: string, fx?: number, fy?: number) {
-  await page.getByRole('button', { name: label }).click()
+  // Exact, or "Bridge" also matches "UFO bridge" and the locator is ambiguous.
+  await page.getByRole('button', { name: label, exact: true }).click()
   await tapGround(page, fx, fy)
 }
 
