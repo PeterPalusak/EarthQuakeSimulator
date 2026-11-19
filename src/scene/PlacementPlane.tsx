@@ -1,8 +1,8 @@
 import type { ThreeEvent } from '@react-three/fiber'
 import { useRef } from 'react'
 import { isTap, type PointerSample } from '../sim/gesture'
-import { canPlace, snapPosition } from '../sim/placement'
-import { useAppStore } from '../state/store'
+import { canPlace } from '../sim/placement'
+import { resolvePlacement, useAppStore } from '../state/store'
 import { GROUND_SIZE } from './Ground'
 import { ghostState } from './placementPointer'
 
@@ -28,11 +28,17 @@ export function PlacementPlane() {
       ghostState.active = false
       return
     }
-    const [x, z] = snapPosition(e.point.x, e.point.z)
+    const { position, connected } = resolvePlacement(
+      selectedType,
+      [e.point.x, e.point.z],
+      rotation,
+      placed,
+    )
     ghostState.active = true
-    ghostState.valid = canPlace(selectedType, [x, z], placed, 1, rotation)
-    ghostState.x = x
-    ghostState.z = z
+    ghostState.valid = canPlace(selectedType, position, placed, connected ? 0 : 1, rotation)
+    ghostState.connected = connected
+    ghostState.x = position[0]
+    ghostState.z = position[1]
   }
 
   return (

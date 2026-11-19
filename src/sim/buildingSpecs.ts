@@ -195,8 +195,8 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
   bridge: {
     id: 'bridge',
     label: 'Bridge',
-    floors: 6, // deck segments
-    footprint: [54, 10],
+    floors: 8, // deck segments, including a two-segment ramp at each end
+    footprint: [60, 10],
     floorMass: 34_000,
     storeyStiffness: 1.34e6,
     storeyDamping: 2.1e4,
@@ -215,8 +215,8 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
   ufoBridge: {
     id: 'ufoBridge',
     label: 'UFO bridge',
-    floors: 7, // deck segments
-    footprint: [72, 11],
+    floors: 9, // deck segments, including a two-segment ramp at each end
+    footprint: [80, 11],
     floorMass: 30_000,
     storeyStiffness: 1.9e6,
     storeyDamping: 3.0e4,

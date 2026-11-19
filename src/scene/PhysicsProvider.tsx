@@ -2,6 +2,7 @@ import { useFrame } from '@react-three/fiber'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { QuakeWorld } from '../physics/QuakeWorld'
 import { initRapier } from '../physics/rapier'
+import { findJunctions } from '../sim/connect'
 import { useQuakeStore } from '../state/quakeStore'
 import { useAppStore } from '../state/store'
 import { usePhysicsStore, usePhysicsWorld } from './physicsAccess'
@@ -57,6 +58,8 @@ export function PhysicsProvider({ children }: { children: ReactNode }) {
         world.addBuilding(p.instanceId, p.type, p.position, p.rotation)
       }
     }
+    // After the bodies exist, not before — a junction references both ends.
+    world.setJunctions(findJunctions(placed))
   }, [world, placed, resetToken])
 
   useFrame((_, delta) => {

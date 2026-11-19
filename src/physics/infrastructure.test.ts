@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { BUILDING_SPECS } from '../sim/buildingSpecs'
 import { MEDIUM_QUAKE } from '../sim/groundMotion'
-import { GROUND, buildStructure } from '../sim/structure'
+import { findJunctions } from '../sim/connect'
+import { GROUND, GROUND_DECK_Y, buildStructure } from '../sim/structure'
 import { runQuake, type LayoutEntry } from './runQuake'
 import { headlessWorld, run, settle } from './testHarness'
 
@@ -27,17 +28,39 @@ describe('geometry', () => {
     for (const n of nodes) expect(n.offset[1]).toBeGreaterThan(0)
   })
 
-  it('a bridge carries its deck on piers, with unsupported spans between them', () => {
+  it('a bridge starts and ends at ground level, and is carried on piers in between', () => {
     const { nodes, links } = buildStructure(BUILDING_SPECS.bridge)
-    const piers = nodes.filter((n) => n.part === 'pier')
     const deck = nodes.filter((n) => n.part === 'deck')
-    expect(piers.length).toBe(3)
+    const piers = nodes.filter((n) => n.part === 'pier')
     expect(deck.length).toBe(BUILDING_SPECS.bridge.floors)
-    // Only the piers reach the ground — the deck hangs between them.
+    expect(piers.length).toBeGreaterThan(0)
+
+    // The ends come down to the ground, so a road can run onto them.
+    expect(deck[0].offset[1]).toBeCloseTo(GROUND_DECK_Y, 6)
+    expect(deck.at(-1)!.offset[1]).toBeCloseTo(GROUND_DECK_Y, 6)
+    // ...and the middle is up at full height.
+    expect(Math.max(...deck.map((n) => n.offset[1]))).toBeCloseTo(
+      BUILDING_SPECS.bridge.deckHeight!,
+      6,
+    )
+
+    // Every pier carries a deck segment at full height; nothing props up the ramps.
     const grounded = links.filter((l) => l.from === GROUND)
-    expect(grounded).toHaveLength(piers.length)
-    for (const l of grounded) expect(nodes[l.to].part).toBe('pier')
-    for (const n of deck) expect(n.offset[1]).toBeGreaterThan(5)
+    for (const l of grounded) {
+      expect(['pier', 'deck']).toContain(nodes[l.to].part)
+    }
+    for (const p of piers) expect(p.offset[1]).toBeGreaterThan(1)
+  })
+
+  it('a bridge climbs monotonically to its crest and back down', () => {
+    const deck = buildStructure(BUILDING_SPECS.bridge)
+      .nodes.filter((n) => n.part === 'deck')
+      .map((n) => n.offset[1])
+    const peak = deck.indexOf(Math.max(...deck))
+    for (let i = 1; i <= peak; i++) expect(deck[i]).toBeGreaterThanOrEqual(deck[i - 1])
+    for (let i = deck.length - 1; i > peak; i--) {
+      expect(deck[i - 1]).toBeGreaterThanOrEqual(deck[i])
+    }
   })
 
   it('every link rests with its two anchors coincident', () => {
@@ -147,10 +170,18 @@ describe('losing a support', () => {
       const b = world.addBuilding('x', 'bridge', [0, 0])
       settle(world, 2)
 
-      // Isolate the end segment: cut its pier and its one neighbour.
+      // Isolate a segment up on the main span — an end segment now rests on the ground and
+      // has nowhere to fall to.
+      const target = b.nodes.findIndex(
+        (n, i) =>
+          n.part === 'deck' &&
+          n.offset[1] > 5 &&
+          b.links.some((l) => l.to === i && b.nodes[l.from]?.part === 'pier'),
+      )
+      expect(target).toBeGreaterThan(0)
       const toCut = b.links
         .map((l, i) => ({ l, i }))
-        .filter(({ l }) => l.to === 0 || (l.from === 0 && b.nodes[l.to].part === 'deck'))
+        .filter(({ l }) => l.to === target || l.from === target)
         .map(({ i }) => i)
       expect(toCut.length).toBeGreaterThanOrEqual(2)
 
@@ -159,7 +190,7 @@ describe('losing a support', () => {
       run(world, 6)
 
       const fell = b.bodies.map((body, i) => before[i] - body.translation().y > 0.5)
-      expect(fell[0]).toBe(true) // the isolated segment came down
+      expect(fell[target]).toBe(true) // the isolated segment came down
       expect(fell.filter(Boolean).length).toBeLessThan(b.bodies.length) // the rest held
 
       for (const body of b.bodies) {
@@ -173,12 +204,17 @@ describe('losing a support', () => {
 })
 
 describe('the showpieces', () => {
-  it('the UFO bridge hangs its deck level, with the saucer on top of the pylon', () => {
+  it('the UFO bridge runs from ground to ground, with the saucer on top of the pylon', () => {
     const { nodes } = buildStructure(BUILDING_SPECS.ufoBridge)
     const deck = nodes.filter((n) => n.part === 'deck')
     const pod = nodes.find((n) => n.part === 'pod')!
     const pylon = nodes.find((n) => n.part === 'pylon')!
-    expect(new Set(deck.map((n) => n.offset[1])).size).toBe(1) // one deck height
+    expect(deck[0].offset[1]).toBeCloseTo(GROUND_DECK_Y, 6)
+    expect(deck.at(-1)!.offset[1]).toBeCloseTo(GROUND_DECK_Y, 6)
+    expect(Math.max(...deck.map((n) => n.offset[1]))).toBeCloseTo(
+      BUILDING_SPECS.ufoBridge.deckHeight!,
+      6,
+    )
     expect(pod.offset[1]).toBeGreaterThan(pylon.offset[1] + pylon.half[1])
     // Asymmetric on purpose: the pylon sits near one end, not in the middle.
     expect(Math.abs(pylon.offset[0])).toBeGreaterThan(BUILDING_SPECS.ufoBridge.footprint[0] / 6)
@@ -236,5 +272,81 @@ describe('the showpieces', () => {
     expect(bridge.peakDrift / BUILDING_SPECS.ufoBridge.driftCapacity).toBeGreaterThan(
       tower.peakDrift / BUILDING_SPECS.tvTower.driftCapacity,
     )
+  }, 120_000)
+})
+
+describe('junctions', () => {
+  const roadLength = BUILDING_SPECS.road.footprint[0]
+
+  it('ties two abutting roads together, and lets go when one is removed', async () => {
+    const world = await headlessWorld()
+    try {
+      world.addBuilding('a', 'road', [0, 0])
+      world.addBuilding('b', 'road', [roadLength, 0])
+      world.setJunctions(
+        findJunctions([
+          { instanceId: 'a', type: 'road', position: [0, 0], rotation: 0 },
+          { instanceId: 'b', type: 'road', position: [roadLength, 0], rotation: 0 },
+        ]),
+      )
+      expect(world.junctionCount()).toBe(1)
+
+      world.removeBuilding('b')
+      expect(world.junctionCount()).toBe(0)
+      run(world, 1) // and the world still steps cleanly with the joint gone
+    } finally {
+      world.dispose()
+    }
+  }, 60_000)
+
+  it('a joined road and bridge rest without deforming at the join', async () => {
+    const bridgeLength = BUILDING_SPECS.bridge.footprint[0]
+    const x = bridgeLength / 2 + roadLength / 2
+    const placed = [
+      { instanceId: 'br', type: 'bridge' as const, position: [0, 0] as [number, number], rotation: 0 as const },
+      { instanceId: 'rd', type: 'road' as const, position: [x, 0] as [number, number], rotation: 0 as const },
+    ]
+    const world = await headlessWorld()
+    try {
+      for (const p of placed) world.addBuilding(p.instanceId, p.type, p.position, p.rotation)
+      world.setJunctions(findJunctions(placed))
+      expect(world.junctionCount()).toBe(1)
+
+      settle(world, 2)
+      run(world, 3)
+      for (const id of ['br', 'rd']) {
+        const b = world.get(id)!
+        for (let i = 0; i < b.links.length; i++) {
+          expect(world.storeyDrift(b, i)).toBeLessThan(3e-3)
+        }
+      }
+    } finally {
+      world.dispose()
+    }
+  }, 120_000)
+
+  it('holds the pieces together through a quake that neither collapses', async () => {
+    const placed = [
+      { instanceId: 'a', type: 'road' as const, position: [0, 0] as [number, number], rotation: 0 as const },
+      { instanceId: 'b', type: 'road' as const, position: [roadLength, 0] as [number, number], rotation: 0 as const },
+    ]
+    const r = await runQuake(MEDIUM_QUAKE, [
+      { type: 'road', position: [0, 0] },
+      { type: 'road', position: [roadLength, 0] },
+    ], {
+      settleAfter: 3,
+      onStep: (world, t) => {
+        if (t > 0) return
+        world.setJunctions(
+          findJunctions(placed).map((j) => ({
+            ...j,
+            a: j.a === 'a' ? 'b0' : 'b1',
+            b: j.b === 'a' ? 'b0' : 'b1',
+          })),
+        )
+      },
+    })
+    expect(r.sawNaN).toBe(false)
+    expect(r.buildings.map((b) => b.collapsed)).toEqual([false, false])
   }, 120_000)
 })

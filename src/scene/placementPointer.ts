@@ -6,6 +6,8 @@
 export const ghostState = {
   active: false,
   valid: false,
+  /** True when the ghost has snapped onto the end of an existing road or bridge. */
+  connected: false,
   x: 0,
   z: 0,
 }

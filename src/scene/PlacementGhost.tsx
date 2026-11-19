@@ -9,6 +9,8 @@ import { UNIT_BOX } from './sharedGeometry'
 
 const VALID = '#4ade80'
 const INVALID = '#ef4444'
+/** Snapped onto a neighbour — worth its own colour, or a snap is invisible until you let go. */
+const CONNECTED = '#38bdf8'
 
 /** Semi-transparent preview of the selected building, snapped to the 1 m grid under the finger. */
 export function PlacementGhost() {
@@ -35,7 +37,9 @@ export function PlacementGhost() {
     g.visible = ghostState.active
     if (!g.visible) return
     g.position.set(ghostState.x, 0, ghostState.z)
-    material.color.set(ghostState.valid ? VALID : INVALID)
+    material.color.set(
+      !ghostState.valid ? INVALID : ghostState.connected ? CONNECTED : VALID,
+    )
   })
 
   if (!selectedType) return null

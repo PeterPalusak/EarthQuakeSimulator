@@ -8,6 +8,7 @@ import {
   type Quarter,
   type StructureLink,
   type StructureNode,
+  type Vec3,
 } from '../sim/structure'
 import { GROUND_HALF_EXTENT } from '../sim/placement'
 import { getRapier } from './rapier'
@@ -118,6 +119,8 @@ export class QuakeWorld {
    * is the budget that matters, not the visual.
    */
   private debris: RigidBody[] = []
+  /** Joints tying one structure's end to another's. Keyed so they can be reconciled. */
+  private junctions = new Map<string, ImpulseJoint>()
   private simulatedTime = 0
   private readonly r = getRapier()
 
@@ -267,6 +270,12 @@ export class QuakeWorld {
   removeBuilding(instanceId: string) {
     const b = this.buildings.get(instanceId)
     if (!b) return
+    // Drop any junction touching it first: its joints reference bodies about to be freed.
+    for (const [key, joint] of this.junctions) {
+      if (!key.startsWith(`${instanceId}:`) && !key.includes(`|${instanceId}:`)) continue
+      this.world.removeImpulseJoint(joint, false)
+      this.junctions.delete(key)
+    }
     for (const j of b.joints) {
       if (j) this.world.removeImpulseJoint(j.spring, false)
     }
@@ -587,6 +596,74 @@ export class QuakeWorld {
       )
       this.debris.push(chunk)
     }
+  }
+
+  /**
+   * Ties the ends of abutting roads and bridges together.
+   *
+   * Reconciled against the list rather than rebuilt, so an unchanged junction keeps its joint
+   * and the structures do not twitch every time something else is placed. The list itself is
+   * derived from the placements by `findJunctions`, so deleting one side simply stops
+   * producing the junction and the joint goes with it.
+   *
+   * Without this a snapped road and bridge are two pieces that merely touch, and the first
+   * shake separates them — which rather defeats the point of connecting them.
+   */
+  setJunctions(list: readonly { a: string; aNode: number; b: string; bNode: number }[]) {
+    const wanted = new Map<string, (typeof list)[number]>()
+    for (const j of list) wanted.set(`${j.a}:${j.aNode}|${j.b}:${j.bNode}`, j)
+
+    for (const [key, joint] of this.junctions) {
+      if (wanted.has(key)) continue
+      this.world.removeImpulseJoint(joint, false)
+      this.junctions.delete(key)
+    }
+
+    for (const [key, j] of wanted) {
+      if (this.junctions.has(key)) continue
+      const a = this.buildings.get(j.a)
+      const b = this.buildings.get(j.b)
+      if (!a || !b) continue
+      const an = a.nodes[j.aNode]
+      const bn = b.nodes[j.bNode]
+      if (!an || !bn) continue
+
+      // Separation between the two end centres, as placed.
+      const delta: Vec3 = [
+        b.origin[0] + bn.offset[0] - (a.origin[0] + an.offset[0]),
+        bn.offset[1] - an.offset[1],
+        b.origin[1] + bn.offset[2] - (a.origin[1] + an.offset[2]),
+      ]
+      // Anchor each end on the face that points at the other, so the two coincide and the
+      // zero-rest spring starts satisfied.
+      const axis = Math.abs(delta[0]) >= Math.abs(delta[2]) ? 0 : 2
+      const sign = Math.sign(delta[axis]) || 1
+      const anchorA: Vec3 = [0, 0, 0]
+      const anchorB: Vec3 = [0, 0, 0]
+      anchorA[axis] = sign * an.half[axis === 0 ? 0 : 2]
+      anchorB[axis] = -sign * bn.half[axis === 0 ? 0 : 2]
+
+      const stiffness = Math.min(a.spec.storeyStiffness, b.spec.storeyStiffness)
+      const joint = this.world.createImpulseJoint(
+        this.r.JointData.spring(
+          0,
+          stiffness,
+          0,
+          { x: anchorA[0], y: anchorA[1], z: anchorA[2] },
+          { x: anchorB[0], y: anchorB[1], z: anchorB[2] },
+        ),
+        a.bodies[j.aNode],
+        b.bodies[j.bNode],
+        true,
+      )
+      joint.setContactsEnabled(false)
+      this.junctions.set(key, joint)
+    }
+  }
+
+  /** How many junctions are currently tied. */
+  junctionCount() {
+    return this.junctions.size
   }
 
   /** Live rubble, for the renderer. */

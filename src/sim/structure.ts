@@ -139,6 +139,31 @@ function buildStack(spec: BuildingSpec, q: Quarter): StructurePlan {
 /** Deck thickness, metres — shared by the road and both bridges. */
 export const DECK_THICKNESS = 0.8
 
+/** Height of a deck segment lying directly on the ground. */
+export const GROUND_DECK_Y = DECK_THICKNESS / 2
+
+/** Segments each approach ramp takes to climb from the ground to the main span. */
+const RAMP_SEGMENTS = 3
+
+/**
+ * Deck height along a bridge: ground at both ends, climbing over a short approach ramp to the
+ * level of the main span.
+ *
+ * Bridges used to hold their deck at full height from end to end, so they began and ended with
+ * a sheer drop and nothing could ever meet them. Coming down to the ground is what lets a road
+ * run onto a bridge, which is the whole point of connecting pieces together.
+ *
+ * Smoothstepped rather than linear, so the climb eases in and out instead of kinking.
+ */
+export function deckProfile(n: number, peakY: number): number[] {
+  return Array.from({ length: n }, (_, i) => {
+    const fromEnd = Math.min(i, n - 1 - i)
+    const u = Math.min(fromEnd / RAMP_SEGMENTS, 1)
+    const eased = u * u * (3 - 2 * u)
+    return GROUND_DECK_Y + (peakY - GROUND_DECK_Y) * eased
+  })
+}
+
 /**
  * A road: a chain of slab segments lying on the ground, each tied *both* to the ground beneath
  * it and to its neighbours.
@@ -206,27 +231,30 @@ function buildBridge(spec: BuildingSpec, q: Quarter): StructurePlan {
   const n = spec.floors
   const seg = length / n
   const deckY = spec.deckHeight ?? 9
+  const heights = deckProfile(n, deckY)
   const nodes: StructureNode[] = []
   const links: StructureLink[] = []
 
   for (let i = 0; i < n; i++) {
     const x = -length / 2 + seg * (i + 0.5)
     nodes.push({
-      offset: rotateQuarter([x, deckY, 0], q),
+      offset: rotateQuarter([x, heights[i], 0], q),
       half: rotateHalf([seg / 2, DECK_THICKNESS / 2, width / 2], q),
       mass: spec.floorMass,
       part: 'deck',
     })
   }
 
-  // Deck segment to deck segment.
+  // Deck segment to deck segment. The rest separation now has a vertical component on the
+  // ramps, which the generalised drift measure handles: deformation is taken perpendicular to
+  // each member's own axis, so a sloped segment is judged along its slope.
   for (let i = 1; i < n; i++) {
     links.push({
       from: i - 1,
       to: i,
-      anchorFrom: rotateQuarter([seg / 2, 0, 0], q),
-      anchorTo: rotateQuarter([-seg / 2, 0, 0], q),
-      rest: rotateQuarter([seg, 0, 0], q),
+      anchorFrom: rotateQuarter([seg / 2, (heights[i] - heights[i - 1]) / 2, 0], q),
+      anchorTo: rotateQuarter([-seg / 2, -(heights[i] - heights[i - 1]) / 2, 0], q),
+      rest: rotateQuarter([seg, heights[i] - heights[i - 1], 0], q),
       stiffness: spec.storeyStiffness,
       damping: spec.storeyDamping,
       span: seg,
@@ -234,16 +262,31 @@ function buildBridge(spec: BuildingSpec, q: Quarter): StructurePlan {
     })
   }
 
-  // Piers under the two abutments and the middle, each a single column to the ground. The
-  // pier stops at the deck's underside rather than at its centreline, so the two never
-  // interpenetrate and — the part that actually bites — the zero-rest-length spring's two
-  // anchors coincide at rest. Anchors that do not coincide pull the deck down until they do,
-  // which shows up as a permanent drift the structure can never shed.
-  const pierTop = deckY - DECK_THICKNESS / 2
-  const pierHalf = pierTop / 2
-  const pierAt = [...new Set([0, Math.floor(n / 2), n - 1])]
-  for (const i of pierAt) {
+  // The two end segments rest on the ground directly; no pier needed.
+  for (const i of [0, n - 1]) {
     const x = -length / 2 + seg * (i + 0.5)
+    links.push({
+      from: GROUND,
+      to: i,
+      anchorFrom: rotateQuarter([x, 0, 0], q),
+      anchorTo: rotateQuarter([0, -DECK_THICKNESS / 2, 0], q),
+      rest: rotateQuarter([0, GROUND_DECK_Y, 0], q),
+      stiffness: spec.storeyStiffness * 2,
+      damping: spec.storeyDamping,
+      span: seg,
+      capacity: spec.driftCapacity,
+    })
+  }
+
+  // Piers under the elevated span only. The pier stops at the deck's underside rather than at
+  // its centreline, so the two never interpenetrate and — the part that actually bites — the
+  // zero-rest-length spring's two anchors coincide at rest. Anchors that do not coincide pull
+  // the deck down until they do, which shows up as a permanent drift it can never shed.
+  for (let i = 0; i < n; i++) {
+    if (heights[i] < deckY - 0.01) continue
+    const x = -length / 2 + seg * (i + 0.5)
+    const pierTop = heights[i] - DECK_THICKNESS / 2
+    const pierHalf = pierTop / 2
     const pier = nodes.length
     nodes.push({
       offset: rotateQuarter([x, pierHalf, 0], q),
@@ -267,7 +310,7 @@ function buildBridge(spec: BuildingSpec, q: Quarter): StructurePlan {
       to: i,
       anchorFrom: rotateQuarter([0, pierHalf, 0], q),
       anchorTo: rotateQuarter([0, -DECK_THICKNESS / 2, 0], q),
-      rest: rotateQuarter([0, deckY - pierHalf, 0], q),
+      rest: rotateQuarter([0, heights[i] - pierHalf, 0], q),
       stiffness: spec.storeyStiffness * 1.5,
       damping: spec.storeyDamping,
       span: pierTop,
@@ -297,22 +340,25 @@ function buildCableBridge(spec: BuildingSpec, q: Quarter): StructurePlan {
   const nodes: StructureNode[] = []
   const links: StructureLink[] = []
 
+  const heights = deckProfile(n, deckY)
+
   for (let i = 0; i < n; i++) {
     const x = -length / 2 + seg * (i + 0.5)
     nodes.push({
-      offset: rotateQuarter([x, deckY, 0], q),
+      offset: rotateQuarter([x, heights[i], 0], q),
       half: rotateHalf([seg / 2, DECK_THICKNESS / 2, width / 2], q),
       mass: spec.floorMass,
       part: 'deck',
     })
   }
   for (let i = 1; i < n; i++) {
+    const rise = heights[i] - heights[i - 1]
     links.push({
       from: i - 1,
       to: i,
-      anchorFrom: rotateQuarter([seg / 2, 0, 0], q),
-      anchorTo: rotateQuarter([-seg / 2, 0, 0], q),
-      rest: rotateQuarter([seg, 0, 0], q),
+      anchorFrom: rotateQuarter([seg / 2, rise / 2, 0], q),
+      anchorTo: rotateQuarter([-seg / 2, -rise / 2, 0], q),
+      rest: rotateQuarter([seg, rise, 0], q),
       stiffness: spec.storeyStiffness,
       damping: spec.storeyDamping,
       span: seg,
@@ -320,44 +366,24 @@ function buildCableBridge(spec: BuildingSpec, q: Quarter): StructurePlan {
     })
   }
 
-  // Abutment: a short pier under the first segment, the only part of the deck the ground
-  // holds up directly. A pier rather than a bare ground link so that, like every other member
-  // here, its two anchors already meet and the spring starts at rest.
-  const abutTop = deckY - DECK_THICKNESS / 2
-  const abutHalf = abutTop / 2
-  const abutX = -length / 2 + seg / 2
-  const abutment = nodes.length
-  nodes.push({
-    offset: rotateQuarter([abutX, abutHalf, 0], q),
-    half: rotateHalf([seg * 0.2, abutHalf, width * 0.32], q),
-    mass: spec.floorMass * 0.8,
-    part: 'pier',
-  })
-  links.push({
-    from: GROUND,
-    to: abutment,
-    anchorFrom: rotateQuarter([abutX, 0, 0], q),
-    anchorTo: rotateQuarter([0, -abutHalf, 0], q),
-    rest: rotateQuarter([0, abutHalf, 0], q),
-    stiffness: spec.storeyStiffness * 3,
-    damping: spec.storeyDamping,
-    span: abutTop,
-    capacity: spec.driftCapacity,
-  })
-  links.push({
-    from: abutment,
-    to: 0,
-    anchorFrom: rotateQuarter([0, abutHalf, 0], q),
-    anchorTo: rotateQuarter([0, -DECK_THICKNESS / 2, 0], q),
-    rest: rotateQuarter([0, deckY - abutHalf, 0], q),
-    stiffness: spec.storeyStiffness * 2,
-    damping: spec.storeyDamping,
-    span: abutTop,
-    capacity: spec.driftCapacity,
-  })
+  // Both ends now reach the ground, so they rest on it directly rather than on an abutment.
+  for (const i of [0, n - 1]) {
+    const x = -length / 2 + seg * (i + 0.5)
+    links.push({
+      from: GROUND,
+      to: i,
+      anchorFrom: rotateQuarter([x, 0, 0], q),
+      anchorTo: rotateQuarter([0, -DECK_THICKNESS / 2, 0], q),
+      rest: rotateQuarter([0, GROUND_DECK_Y, 0], q),
+      stiffness: spec.storeyStiffness * 2,
+      damping: spec.storeyDamping,
+      span: seg,
+      capacity: spec.driftCapacity,
+    })
+  }
 
   // The pylon: a leaning column rising from just past the abutment.
-  const pylonX = -length / 2 + seg * 1.5
+  const pylonX = -length / 2 + seg * 2.5
   const pylonHalf = pylonTop / 2
   const pylon = nodes.length
   nodes.push({
@@ -410,13 +436,15 @@ function buildCableBridge(spec: BuildingSpec, q: Quarter): StructurePlan {
   // Supporting the deck at the abutment and at the pylon leaves exactly the behaviour the
   // bridge is interesting for: short and stiff at the anchored end, a long cantilever beyond
   // the pylon that has to carry itself. See `UfoBridgeCables` for the visible cables.
-  const pylonDeck = 1
+  // Whichever segment the pylon stands beside, at that segment's own height.
+  const pylonDeck = Math.min(2, n - 1)
+  const pylonDeckY = heights[pylonDeck]
   links.push({
     from: pylon,
     to: pylonDeck,
-    anchorFrom: rotateQuarter([0, deckY - pylonHalf, 0], q),
+    anchorFrom: rotateQuarter([0, pylonDeckY - pylonHalf, 0], q),
     anchorTo: [0, 0, 0],
-    rest: rotateQuarter([0, deckY - pylonHalf, 0], q),
+    rest: rotateQuarter([0, pylonDeckY - pylonHalf, 0], q),
     stiffness: spec.storeyStiffness * 2.5,
     damping: spec.storeyDamping * 1.5,
     span: pylonTop - deckY,

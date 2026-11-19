@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { BuildingTypeId } from '../sim/buildingSpecs'
+import { findSnap } from '../sim/connect'
 import { canPlace, snapPosition, type PlacedBuilding } from '../sim/placement'
 import type { Quarter } from '../sim/structure'
 
@@ -23,6 +24,24 @@ export interface AppState {
   place: (t: BuildingTypeId, pos: [number, number]) => string | null
   remove: (instanceId: string) => void
   clear: () => void
+}
+
+/**
+ * Where a piece actually ends up: snapped flush onto a neighbouring road or bridge if one is
+ * within reach, otherwise snapped to the 1 m grid as usual.
+ *
+ * Shared with the placement preview so the ghost shows exactly where the piece will land —
+ * a preview that does not account for the snap would jump on release.
+ */
+export function resolvePlacement(
+  type: BuildingTypeId,
+  pos: [number, number],
+  rotation: Quarter,
+  placed: PlacedBuilding[],
+): { position: [number, number]; connected: boolean } {
+  const gridded = snapPosition(pos[0], pos[1])
+  const snap = findSnap(type, gridded, rotation, placed)
+  return snap ? { position: snap.position, connected: true } : { position: gridded, connected: false }
 }
 
 let instanceCounter = 0
@@ -60,9 +79,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   place: (type, pos) => {
-    const position = snapPosition(pos[0], pos[1])
     const { placed, rotation } = get()
-    if (!canPlace(type, position, placed, 1, rotation)) return null
+    const { position, connected } = resolvePlacement(type, pos, rotation, placed)
+    // A connected piece sits flush against its neighbour, so the usual 1 m breathing space
+    // between structures would reject exactly the placement being asked for. Touching faces
+    // are not an overlap: the box test is strict on both sides.
+    if (!canPlace(type, position, placed, connected ? 0 : 1, rotation)) return null
 
     const instanceId = nextInstanceId()
     set({ placed: [...placed, { instanceId, type, position, rotation }] })

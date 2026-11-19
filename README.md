@@ -56,6 +56,12 @@ steps with the rotate button, or `R`.
 The quake controls carry six presets, from a moderate local event up to a near-field M8 and a
 minute-long megathrust.
 
+**Roads and bridges join up.** Both bridges run from ground level, climb a short ramp to the
+span and come back down, so a road can run onto one. Bring a new piece near the end of one
+already down and it snaps flush — the ghost turns blue when it will — and the physics then ties
+the two ends together, so the junction is a real structural connection that a big enough quake
+can pull apart rather than two pieces that happen to touch.
+
 ### The fish finger house
 
 Alongside the five types the brief asks for, there is a tower built out of fish fingers. It is
