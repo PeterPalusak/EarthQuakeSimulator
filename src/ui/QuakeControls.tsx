@@ -8,6 +8,7 @@ import {
   magnitudeLabel,
   sliderToDistance,
 } from '../sim/quakeScales'
+import { MOTION_GAIN } from '../sim/groundMotion'
 import { previewIntensity, useQuakeStore } from '../state/quakeStore'
 
 /**
@@ -25,9 +26,12 @@ export function QuakeControls() {
   const running = phase === 'running'
   // Collapsible because the panel sits over the build area — full width along the bottom on a
   // phone — and the ground underneath it has to stay reachable.
-  // Collapsed by default on a phone, where the panel would otherwise take a third of the
-  // screen before the user has even placed a building.
-  const [open, setOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 640)
+  // Collapsed by default wherever the panel would crowd the scene: a phone, but also a short
+  // landscape window, where button plus panel together are taller than the viewport and the
+  // red button gets pushed up behind the palette.
+  const [open, setOpen] = useState(
+    () => typeof window === 'undefined' || (window.innerWidth >= 640 && window.innerHeight >= 720),
+  )
 
   // Cheap: these are closed-form, so moving a slider never generates a full record.
   const { pga, duration } = previewIntensity(settings)
@@ -104,7 +108,7 @@ export function QuakeControls() {
 
         {/* What connects two abstract sliders to a consequence the user can feel. */}
         <p data-testid="intensity-preview" className="mt-2 font-mono text-[11px] opacity-80">
-          shaking {pga.toFixed(3)} g · lasting {duration.toFixed(0)} s
+          shaking {pga.toFixed(3)} g · lasting {duration.toFixed(0)} s · shown {MOTION_GAIN}&times;
         </p>
 
         <div className="mt-2 flex flex-wrap gap-1.5">

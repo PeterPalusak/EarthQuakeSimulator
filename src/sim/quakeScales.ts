@@ -86,6 +86,20 @@ export const PRESETS: Preset[] = [
     distanceKm: 3,
     shows: 'Widespread collapse',
   },
+  {
+    id: 'underfoot',
+    name: 'Right beneath you',
+    magnitude: 7.5,
+    distanceKm: 1,
+    shows: 'The rupture is under the site — a violent, high-frequency jolt',
+  },
+  {
+    id: 'megathrust',
+    name: 'Megathrust',
+    magnitude: 8.0,
+    distanceKm: 20,
+    shows: 'A minute of slow, deep rolling that tall structures cannot shrug off',
+  },
 ]
 
 /**

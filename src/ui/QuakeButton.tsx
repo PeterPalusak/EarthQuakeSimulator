@@ -1,4 +1,5 @@
 import { useAppStore } from '../state/store'
+import { MOTION_GAIN } from '../sim/groundMotion'
 import { previewIntensity, useQuakeStore } from '../state/quakeStore'
 
 /** The red button from the requirement: right side, vertically centred, unmistakable. */
@@ -52,6 +53,9 @@ export function QuakeButton() {
         <div>{settings.distanceKm} km</div>
         <div>{pga.toFixed(3)} g</div>
         <div>{duration.toFixed(1)} s</div>
+        {/* The ground really is moved this much harder, so say so rather than quietly
+            letting the g figure imply motion that does not match what is on screen. */}
+        <div className="opacity-70">shown {MOTION_GAIN}&times;</div>
       </div>
 
       {phase !== 'idle' && (

@@ -1,5 +1,6 @@
 import type { ImpulseJoint, RigidBody, World } from '@dimforge/rapier3d-compat'
 import { BUILDING_SPECS, type BuildingSpec, type BuildingTypeId } from '../sim/buildingSpecs'
+import { MOTION_GAIN } from '../sim/groundMotion'
 import {
   GROUND,
   buildStructure,
@@ -341,7 +342,12 @@ export class QuakeWorld {
     // Strip the component along the axis; what is left is the shear.
     const [ax, ay, az] = linkAxis(link)
     const along = dx * ax + dy * ay + dz * az
-    return Math.hypot(dx - along * ax, dy - along * ay, dz - along * az) / link.span
+    const shear = Math.hypot(dx - along * ax, dy - along * ay, dz - along * az)
+
+    // The world is shaken at MOTION_GAIN times life size so the motion can be seen. Dividing
+    // it back out here is what keeps `driftCapacity` a real engineering number and keeps the
+    // damage ladder — medium is survivable, M7 is not — meaning what it meant before.
+    return shear / link.span / MOTION_GAIN
   }
 
   /**

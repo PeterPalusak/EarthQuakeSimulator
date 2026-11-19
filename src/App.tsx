@@ -20,7 +20,9 @@ export default function App() {
 
         {/* The red button and the quake settings share one column so they cannot overlap:
             stacked along the bottom on a phone, a right-hand column on anything wider. */}
-        <div className="absolute inset-x-0 bottom-0 flex flex-col items-end gap-2 p-3 sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:justify-center">
+        {/* Anchored to the bottom and growing upward. Centring it vertically overflows past
+            the top of a short window — a laptop in landscape — and collides with the palette. */}
+        <div className="absolute inset-x-0 bottom-0 flex max-h-full flex-col items-end justify-end gap-2 overflow-y-auto p-3 pt-24 sm:inset-x-auto sm:inset-y-0 sm:right-0">
           <QuakeButton />
           <QuakeControls />
         </div>

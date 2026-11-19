@@ -1,5 +1,10 @@
 import type { BuildingTypeId } from '../sim/buildingSpecs'
-import { generateGroundMotion, sampleAt, type QuakeParams } from '../sim/groundMotion'
+import {
+  MOTION_GAIN,
+  generateGroundMotion,
+  sampleAt,
+  type QuakeParams,
+} from '../sim/groundMotion'
 import { FIXED_TIMESTEP, QuakeWorld } from './QuakeWorld'
 import { initRapier } from './rapier'
 
@@ -101,10 +106,11 @@ export async function runQuake(
         world.setGroundTranslation(0, 0, 0)
         return
       }
+      // Same amplification the app plays, so the headless tests judge what users see.
       world.setGroundTranslation(
-        sampleAt(motion, motion.disp.x, clock),
-        sampleAt(motion, motion.disp.y, clock),
-        sampleAt(motion, motion.disp.z, clock),
+        sampleAt(motion, motion.disp.x, clock) * MOTION_GAIN,
+        sampleAt(motion, motion.disp.y, clock) * MOTION_GAIN,
+        sampleAt(motion, motion.disp.z, clock) * MOTION_GAIN,
       )
       clock += FIXED_TIMESTEP
     }

@@ -1,7 +1,7 @@
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useRef } from 'react'
 import { FIXED_TIMESTEP } from '../physics/QuakeWorld'
-import { sampleAt } from '../sim/groundMotion'
+import { MOTION_GAIN, sampleAt } from '../sim/groundMotion'
 import { useQuakeStore } from '../state/quakeStore'
 import { usePhysics } from './PhysicsProvider'
 
@@ -52,9 +52,9 @@ export function QuakeDriver() {
       // Interpolate: the record is 200 Hz and the simulation 120 Hz, and sampling unevenly
       // adds a high-frequency buzz on top of the intended motion.
       world.setGroundTranslation(
-        sampleAt(motion, motion.disp.x, clock.current),
-        sampleAt(motion, motion.disp.y, clock.current),
-        sampleAt(motion, motion.disp.z, clock.current),
+        sampleAt(motion, motion.disp.x, clock.current) * MOTION_GAIN,
+        sampleAt(motion, motion.disp.y, clock.current) * MOTION_GAIN,
+        sampleAt(motion, motion.disp.z, clock.current) * MOTION_GAIN,
       )
       clock.current += FIXED_TIMESTEP
       stepsThisFrame.current++

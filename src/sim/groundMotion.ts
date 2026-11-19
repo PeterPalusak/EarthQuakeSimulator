@@ -91,6 +91,23 @@ export const MAX_DISPLACEMENT = 1.5
  */
 export const HIGH_PASS_HZ = 0.1
 
+/**
+ * How much the ground motion is amplified when it is played into the world.
+ *
+ * An honest 0.2 g quake moves the ground a few centimetres. That is correct, and it is also
+ * nearly invisible against a 36 m building — so the app looked like nothing was happening at
+ * anything short of catastrophic settings.
+ *
+ * This multiplies the displacement actually fed to the kinematic ground, so the structures
+ * genuinely respond harder: it is a bigger earthquake, not a camera trick. `disp` itself stays
+ * truthful, which is why every intensity and integration test is unaffected.
+ *
+ * The compensating half of the deal is in `QuakeWorld.storeyDrift`, which divides it back out
+ * before damage is judged. Without that every preset would flatten everything and the app
+ * would lose the thing it is for. See plan Stage F.
+ */
+export const MOTION_GAIN = 4
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 /**

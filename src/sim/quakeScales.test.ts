@@ -11,7 +11,7 @@ import {
   radiusToDistance,
   sliderToDistance,
 } from './quakeScales'
-import { generateGroundMotion, predictPga } from './groundMotion'
+import { effectiveSoilFrequency, generateGroundMotion, predictPga } from './groundMotion'
 
 describe('the logarithmic distance slider', () => {
   it('maps 0 to 1 km and 1 to 200 km', () => {
@@ -121,12 +121,41 @@ describe('presets', () => {
     }
   })
 
-  it('"The big one" is the most intense of them', () => {
+  it('offers six scenarios', () => {
+    expect(PRESETS).toHaveLength(6)
+  })
+
+  it('the three severe presets all sit well above the everyday ones', () => {
+    const pga = (id: string) => {
+      const p = PRESETS.find((x) => x.id === id)!
+      return predictPga(p.magnitude, p.distanceKm)
+    }
+    for (const severe of ['bigone', 'underfoot', 'megathrust']) {
+      for (const mild of ['distant', 'moderate', 'sharp']) {
+        expect(pga(severe)).toBeGreaterThan(pga(mild) * 2)
+      }
+    }
+  })
+
+  it('"The big one" is at least as intense as anything else on offer', () => {
+    // At least as, not more than: the top of the range is clamped at MAX_PGA_G, so the two
+    // near-field monsters both saturate it and tie. What separates them is duration and
+    // frequency content, asserted below, not peak acceleration.
     const intensity = (p: (typeof PRESETS)[number]) => predictPga(p.magnitude, p.distanceKm)
     const big = PRESETS.find((p) => p.id === 'bigone')!
     for (const p of PRESETS) {
-      if (p.id !== 'bigone') expect(intensity(big)).toBeGreaterThan(intensity(p))
+      expect(intensity(big)).toBeGreaterThanOrEqual(intensity(p))
     }
+  })
+
+  it('the two new severe presets are different quakes, not the same one twice', () => {
+    const underfoot = PRESETS.find((p) => p.id === 'underfoot')!
+    const megathrust = PRESETS.find((p) => p.id === 'megathrust')!
+    // Same saturated peak, but the distant one is the longer, slower roll.
+    expect(megathrust.distanceKm).toBeGreaterThan(underfoot.distanceKm)
+    expect(effectiveSoilFrequency('firm', megathrust.distanceKm)).toBeLessThan(
+      effectiveSoilFrequency('firm', underfoot.distanceKm),
+    )
   })
 
   it('"Distant rumble" is lower frequency than "Sharp & close"', () => {
