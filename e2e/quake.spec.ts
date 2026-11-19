@@ -19,13 +19,20 @@ test.describe('quake controls', () => {
   })
 
   // "The big one" is an M8, which shakes for about 50 seconds of simulated time.
-  test('a severe quake collapses a tall block and the summary says so', async ({ page }) => {
+  //
+  // Uses the fish finger house rather than a tall block on purpose. Each press generates a
+  // fresh random seed, and a 12-floor block at M8 reaches about 2.1 % drift against a 1.8 %
+  // capacity — close enough that some seeds spare it, which makes the test a coin flip in CI.
+  // The fish finger house fails at 0.9 % and is far past it, so this asserts the browser path
+  // end to end rather than gambling. The block's own collapse is pinned headlessly, on a fixed
+  // seed, in src/physics/collapse.test.ts.
+  test('a severe quake collapses a structure and the summary says so', async ({ page }) => {
     test.setTimeout(300_000)
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
 
     await waitForScene(page)
-    await placeBuilding(page, 'Large block')
+    await placeBuilding(page, 'Fish finger house')
     await expect(page.getByTestId('placed-count')).toHaveText('1 placed')
 
     await openQuakeSettings(page)

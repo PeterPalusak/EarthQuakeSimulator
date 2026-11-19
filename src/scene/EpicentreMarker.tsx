@@ -1,7 +1,7 @@
 import { Line, Text } from '@react-three/drei'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useRef, useState } from 'react'
-import type { Group, Mesh } from 'three'
+import { Mesh, type Group } from 'three'
 import {
   MARKER_MAX_RADIUS,
   MARKER_MIN_RADIUS,
@@ -10,6 +10,9 @@ import {
 } from '../sim/quakeScales'
 import { useQuakeStore } from '../state/quakeStore'
 import { useAppStore } from '../state/store'
+
+/** Swallows picks without replacing the method with something uncallable. */
+const noRaycast = () => null
 
 /**
  * Where the quake comes from, shown on the ground and draggable.
@@ -69,7 +72,10 @@ export function EpicentreMarker() {
       {/* Generous invisible hit area: a thin ring is unhittable with a thumb. */}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
-        raycast={placing || running ? () => null : undefined}
+        // Never `undefined`: r3f assigns whatever it is given straight onto the object, and
+        // three then calls `object.raycast(...)` on every pick. Handing it undefined breaks
+        // picking for the entire scene the moment a build tool is deselected.
+        raycast={placing || running ? noRaycast : Mesh.prototype.raycast}
         onPointerDown={(e) => {
           if (running) return
           e.stopPropagation()
