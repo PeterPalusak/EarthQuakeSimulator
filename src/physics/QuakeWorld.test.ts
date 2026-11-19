@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  BUILDING_LIST,
+
   CONVENTIONAL_LIST,
   FLOOR_HEIGHT,
+  VERTICAL_LIST,
   floorCentreY,
   specTargetPeriod,
 } from '../sim/buildingSpecs'
@@ -51,9 +52,9 @@ describe('stability at rest', () => {
     })
   })
 
-  it('all five types stand up with no jitter, drift or NaN', async () => {
+  it('every upright type stands up with no jitter, drift or NaN', async () => {
     world = await headlessWorld()
-    const placed = BUILDING_LIST.map((spec, i) =>
+    const placed = VERTICAL_LIST.map((spec, i) =>
       world!.addBuilding(spec.id, spec.id, [i * 25 - 62, 0]),
     )
     run(world, 4)
@@ -82,7 +83,7 @@ describe('stability at rest', () => {
 describe('period calibration — the key test', () => {
   // The core claim of the simulation: a building's natural period is ~0.1 s per storey, which
   // is why the tower and the house respond completely differently to the same quake.
-  it.each(BUILDING_LIST)(
+  it.each(VERTICAL_LIST)(
     '$label sways with the period it is calibrated to',
     async (spec) => {
       const period = await measureFreeVibrationPeriod(spec.id)

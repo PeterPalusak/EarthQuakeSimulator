@@ -139,8 +139,159 @@ function buildStack(spec: BuildingSpec, q: Quarter): StructurePlan {
   return { nodes, links }
 }
 
+/** Deck thickness, metres — shared by the road and both bridges. */
+export const DECK_THICKNESS = 0.8
+
+/**
+ * A road: a chain of slab segments lying on the ground, each tied *both* to the ground beneath
+ * it and to its neighbours.
+ *
+ * The ground tie is what makes it a road rather than a floating ribbon, and the neighbour ties
+ * are what let it fail interestingly: segments shear apart into offset slabs, which is what
+ * roads actually do in an earthquake. `spec.floors` is reused as the segment count — on a
+ * horizontal structure "floors" means "how many pieces".
+ */
+function buildRoad(spec: BuildingSpec, q: Quarter): StructurePlan {
+  const [length, width] = spec.footprint
+  const n = spec.floors
+  const seg = length / n
+  const nodes: StructureNode[] = []
+  const links: StructureLink[] = []
+
+  for (let i = 0; i < n; i++) {
+    const x = -length / 2 + seg * (i + 0.5)
+    nodes.push({
+      offset: rotateQuarter([x, DECK_THICKNESS / 2, 0], q),
+      half: rotateHalf([seg / 2, DECK_THICKNESS / 2, width / 2], q),
+      mass: spec.floorMass,
+      part: 'deck',
+    })
+    // Tie to the ground directly below this segment.
+    links.push({
+      from: GROUND,
+      to: i,
+      anchorFrom: rotateQuarter([x, 0, 0], q),
+      anchorTo: rotateQuarter([0, -DECK_THICKNESS / 2, 0], q),
+      rest: rotateQuarter([0, DECK_THICKNESS / 2, 0], q),
+      stiffness: spec.storeyStiffness,
+      damping: spec.storeyDamping,
+      span: seg,
+      capacity: spec.driftCapacity,
+      mass: spec.floorMass,
+    })
+    // ...and to the segment behind it.
+    if (i > 0) {
+      links.push({
+        from: i - 1,
+        to: i,
+        anchorFrom: rotateQuarter([seg / 2, 0, 0], q),
+        anchorTo: rotateQuarter([-seg / 2, 0, 0], q),
+        rest: rotateQuarter([seg, 0, 0], q),
+        stiffness: spec.storeyStiffness,
+        damping: spec.storeyDamping,
+        span: seg,
+        capacity: spec.driftCapacity,
+        mass: spec.floorMass,
+      })
+    }
+  }
+
+  return { nodes, links }
+}
+
+/**
+ * An ordinary bridge: a deck carried on piers, with unsupported spans between them.
+ *
+ * Only the end abutments and the piers reach the ground. The segments in between hold each
+ * other up, so losing a pier drops a whole span — and `supportedNodes` works that out by
+ * reachability rather than by anything hard-coded here.
+ */
+function buildBridge(spec: BuildingSpec, q: Quarter): StructurePlan {
+  const [length, width] = spec.footprint
+  const n = spec.floors
+  const seg = length / n
+  const deckY = spec.deckHeight ?? 9
+  const nodes: StructureNode[] = []
+  const links: StructureLink[] = []
+
+  for (let i = 0; i < n; i++) {
+    const x = -length / 2 + seg * (i + 0.5)
+    nodes.push({
+      offset: rotateQuarter([x, deckY, 0], q),
+      half: rotateHalf([seg / 2, DECK_THICKNESS / 2, width / 2], q),
+      mass: spec.floorMass,
+      part: 'deck',
+    })
+  }
+
+  // Deck segment to deck segment.
+  for (let i = 1; i < n; i++) {
+    links.push({
+      from: i - 1,
+      to: i,
+      anchorFrom: rotateQuarter([seg / 2, 0, 0], q),
+      anchorTo: rotateQuarter([-seg / 2, 0, 0], q),
+      rest: rotateQuarter([seg, 0, 0], q),
+      stiffness: spec.storeyStiffness,
+      damping: spec.storeyDamping,
+      span: seg,
+      capacity: spec.driftCapacity,
+      mass: spec.floorMass,
+    })
+  }
+
+  // Piers under the two abutments and the middle, each a single column to the ground. The
+  // pier stops at the deck's underside rather than at its centreline, so the two never
+  // interpenetrate and — the part that actually bites — the zero-rest-length spring's two
+  // anchors coincide at rest. Anchors that do not coincide pull the deck down until they do,
+  // which shows up as a permanent drift the structure can never shed.
+  const pierTop = deckY - DECK_THICKNESS / 2
+  const pierHalf = pierTop / 2
+  const pierAt = [...new Set([0, Math.floor(n / 2), n - 1])]
+  for (const i of pierAt) {
+    const x = -length / 2 + seg * (i + 0.5)
+    const pier = nodes.length
+    nodes.push({
+      offset: rotateQuarter([x, pierHalf, 0], q),
+      half: rotateHalf([seg * 0.18, pierHalf, width * 0.3], q),
+      mass: spec.floorMass * 0.8,
+      part: 'pier',
+    })
+    links.push({
+      from: GROUND,
+      to: pier,
+      anchorFrom: rotateQuarter([x, 0, 0], q),
+      anchorTo: rotateQuarter([0, -pierHalf, 0], q),
+      rest: rotateQuarter([0, pierHalf, 0], q),
+      stiffness: spec.storeyStiffness,
+      damping: spec.storeyDamping,
+      span: pierTop,
+      capacity: spec.driftCapacity,
+      mass: spec.floorMass * 0.8,
+    })
+    links.push({
+      from: pier,
+      to: i,
+      anchorFrom: rotateQuarter([0, pierHalf, 0], q),
+      anchorTo: rotateQuarter([0, -DECK_THICKNESS / 2, 0], q),
+      rest: rotateQuarter([0, deckY - pierHalf, 0], q),
+      stiffness: spec.storeyStiffness * 1.5,
+      damping: spec.storeyDamping,
+      span: pierTop,
+      capacity: spec.driftCapacity,
+      mass: spec.floorMass,
+    })
+  }
+
+  return { nodes, links }
+}
+
 export function buildStructure(spec: BuildingSpec, rotation: Quarter = 0): StructurePlan {
   switch (spec.layout ?? 'stack') {
+    case 'road':
+      return buildRoad(spec, rotation)
+    case 'bridge':
+      return buildBridge(spec, rotation)
     default:
       return buildStack(spec, rotation)
   }

@@ -19,6 +19,8 @@ export type BuildingTypeId =
   | 'mediumBlock'
   | 'largeBlock'
   | 'fishFingerHouse'
+  | 'road'
+  | 'bridge'
 
 /** The five conventional types, which form a ladder of increasing height and decreasing
  *  ductility. Invariants that only make sense for real construction are asserted over these,
@@ -67,6 +69,8 @@ export interface BuildingSpec {
    * with a different shape — see src/sim/structure.ts.
    */
   layout?: StructureLayout
+  /** Deck height above the ground, metres. Bridges only. */
+  deckHeight?: number
   /**
    * How a floor is drawn. `solid` (the default) is one box per floor. `fishFingers` draws each
    * floor as a course of separate bars, laid crosswise to the course below. Purely cosmetic —
@@ -162,6 +166,42 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
    * The structurally interesting part is that floppy and brittle pull in opposite directions:
    * being soft keeps the forces down, being crumbly means it needs very little to fail.
    */
+  /**
+   * A stretch of road. Slab segments lying on the ground, tied to it and to each other, so it
+   * fails by shearing into offset slabs rather than by falling over — there is nothing to fall.
+   * Low capacity: asphalt has no ductility to speak of.
+   */
+  road: {
+    id: 'road',
+    label: 'Road',
+    floors: 6, // segments, on a horizontal structure
+    footprint: [48, 9],
+    floorMass: 20_000,
+    storeyStiffness: 8.8e6,
+    storeyDamping: 4.2e4,
+    driftCapacity: 0.009,
+    colour: '#44474d',
+    layout: 'road',
+  },
+
+  /**
+   * An ordinary road bridge: a deck on piers with unsupported spans between them. Losing a
+   * pier drops a whole span, which `supportedNodes` works out by reachability.
+   */
+  bridge: {
+    id: 'bridge',
+    label: 'Bridge',
+    floors: 6, // deck segments
+    footprint: [54, 10],
+    floorMass: 34_000,
+    storeyStiffness: 1.34e6,
+    storeyDamping: 2.1e4,
+    driftCapacity: 0.015,
+    colour: '#9ba3ab',
+    layout: 'bridge',
+    deckHeight: 9,
+  },
+
   fishFingerHouse: {
     id: 'fishFingerHouse',
     label: 'Fish finger house',
@@ -178,10 +218,33 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
   },
 }
 
-/** Palette order: the Description's ladder shortest-first, then the novelties. */
-export const BUILDING_ORDER: BuildingTypeId[] = [...CONVENTIONAL_TYPES, 'fishFingerHouse']
+/** Infrastructure: not buildings, and not part of the height ladder. */
+export const INFRASTRUCTURE_TYPES: BuildingTypeId[] = ['road', 'bridge']
+
+/** Palette order: the Description's ladder shortest-first, then infrastructure, then novelties. */
+export const BUILDING_ORDER: BuildingTypeId[] = [
+  ...CONVENTIONAL_TYPES,
+  ...INFRASTRUCTURE_TYPES,
+  'fishFingerHouse',
+]
 
 export const BUILDING_LIST: BuildingSpec[] = BUILDING_ORDER.map((id) => BUILDING_SPECS[id])
+
+/**
+ * Is this a vertical stack of floors? True for buildings and towers, false for anything
+ * horizontal. Natural period, interstorey drift and "push the roof and watch it sway" only
+ * mean something for these.
+ */
+export const isVerticalStack = (spec: BuildingSpec) =>
+  (spec.layout ?? 'stack') === 'stack' || spec.layout === 'tower'
+
+/** Types whose geometry `buildStack` generates verbatim. */
+export const PLAIN_STACK_LIST: BuildingSpec[] = BUILDING_LIST.filter(
+  (s) => (s.layout ?? 'stack') === 'stack',
+)
+
+/** Everything that stands upright, so periods and interstorey drift apply. */
+export const VERTICAL_LIST: BuildingSpec[] = BUILDING_LIST.filter(isVerticalStack)
 
 /** The five types from the requirement, in ladder order. */
 export const CONVENTIONAL_LIST: BuildingSpec[] = CONVENTIONAL_TYPES.map(
@@ -202,6 +265,13 @@ export const specTargetPeriod = (spec: BuildingSpec) =>
   targetPeriod(spec.floors) * (spec.periodFactor ?? 1)
 
 export const buildingHeight = (spec: BuildingSpec) => spec.floors * FLOOR_HEIGHT
+
+/** What `floors` counts for this type. On a horizontal structure it is pieces, not storeys. */
+export function partLabel(spec: BuildingSpec): string {
+  const layout = spec.layout ?? 'stack'
+  const noun = layout === 'stack' || layout === 'tower' ? 'floor' : 'segment'
+  return `${spec.floors} ${noun}${spec.floors > 1 ? 's' : ''}`
+}
 
 /** Centre height of floor `i` (0-based) above the ground. */
 export const floorCentreY = (i: number) => (i + 0.5) * FLOOR_HEIGHT

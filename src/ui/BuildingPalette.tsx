@@ -1,4 +1,5 @@
-import { BUILDING_LIST } from '../sim/buildingSpecs'
+import { useEffect } from 'react'
+import { BUILDING_LIST, partLabel } from '../sim/buildingSpecs'
 import { useAppStore } from '../state/store'
 import { BuildingIcon } from './BuildingIcon'
 
@@ -7,6 +8,21 @@ export function BuildingPalette() {
   const select = useAppStore((s) => s.select)
   const placed = useAppStore((s) => s.placed)
   const clear = useAppStore((s) => s.clear)
+  const rotation = useAppStore((s) => s.rotation)
+  const rotate = useAppStore((s) => s.rotate)
+
+  // R to turn, the convention anyone who has placed objects in a game already knows. Phones
+  // get the button; this is just the desktop shortcut for the same action.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'r' && e.key !== 'R') return
+      const el = document.activeElement
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return
+      rotate()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [rotate])
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start gap-2 p-2 sm:p-3">
@@ -36,7 +52,7 @@ export function BuildingPalette() {
                 {spec.label}
               </span>
               <span className="text-[10px] leading-none opacity-70">
-                {spec.floors} floor{spec.floors > 1 ? 's' : ''}
+                {partLabel(spec)}
               </span>
             </button>
           )
@@ -44,6 +60,22 @@ export function BuildingPalette() {
       </div>
 
       <div className="pointer-events-auto ml-auto flex flex-col items-end gap-1">
+        <button
+          type="button"
+          aria-label="Rotate 90 degrees"
+          title="Rotate (R)"
+          onClick={rotate}
+          className="flex min-h-[36px] items-center gap-1.5 rounded-lg bg-slate-900/75 px-3 py-1 text-xs font-medium text-white shadow backdrop-blur active:bg-slate-700"
+        >
+          <span
+            aria-hidden="true"
+            className="inline-block transition-transform"
+            style={{ transform: `rotate(${rotation * 90}deg)` }}
+          >
+            &#8631;
+          </span>
+          {rotation * 90}&deg;
+        </button>
         <span
           data-testid="placed-count"
           className="rounded-lg bg-slate-900/75 px-2 py-1 text-xs text-white shadow backdrop-blur"

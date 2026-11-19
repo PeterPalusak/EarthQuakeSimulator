@@ -151,9 +151,11 @@ export async function runQuake(
         peakDrift: Math.max(...b.peakDrift),
         worstStorey,
         collapsed: b.collapsed,
+        // Node 0 only sits at the placement origin on a vertical stack; a road or bridge
+        // starts half its length away. Measure against where the node actually belongs.
         finalBaseOffset: Math.hypot(
-          baseT.x - g.x - b.origin[0],
-          baseT.z - g.z - b.origin[1],
+          baseT.x - g.x - b.origin[0] - b.nodes[0].offset[0],
+          baseT.z - g.z - b.origin[1] - b.nodes[0].offset[2],
         ),
         finalRoofSpeed: Math.hypot(roofVel.x, roofVel.y, roofVel.z),
         peakRoofSpeed: peakSpeed[i],

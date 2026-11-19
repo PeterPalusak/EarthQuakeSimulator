@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { BuildingTypeId } from './buildingSpecs'
+import type { Quarter } from './structure'
 import { GROUND_HALF_EXTENT, canPlace, snapPosition, type PlacedBuilding } from './placement'
 
-const at = (type: BuildingTypeId, position: [number, number]): PlacedBuilding => ({
+const at = (
+  type: BuildingTypeId,
+  position: [number, number],
+  rotation: Quarter = 0,
+): PlacedBuilding => ({
   instanceId: `${type}@${position.join(',')}`,
   type,
   position,
+  rotation,
 })
 
 describe('snapPosition', () => {
@@ -63,5 +69,32 @@ describe('canPlace', () => {
   it('checks against every placed building, not just the first', () => {
     const placed = [at('smallHouse', [-20, 0]), at('smallHouse', [0, 0])]
     expect(canPlace('smallHouse', [1, 0], placed)).toBe(false)
+  })
+})
+
+describe('rotation', () => {
+  it('a long structure blocks a different strip of ground when turned', () => {
+    // A road is 48 x 9. Unrotated it reaches far along X; turned, far along Z.
+    expect(canPlace('road', [0, 0], [], 1, 0)).toBe(true)
+    expect(canPlace('smallHouse', [20, 0], [at('road', [0, 0], 0)])).toBe(false)
+    expect(canPlace('smallHouse', [20, 0], [at('road', [0, 0], 1)])).toBe(true)
+    expect(canPlace('smallHouse', [0, 20], [at('road', [0, 0], 1)])).toBe(false)
+  })
+
+  it('respects the ground bounds in whichever direction it is pointing', () => {
+    // Half of 48 is 24, so a road centred 80 m out fits along Z but not along X.
+    expect(canPlace('road', [80, 0], [], 1, 0)).toBe(false)
+    expect(canPlace('road', [80, 0], [], 1, 1)).toBe(true)
+  })
+
+  it('two opposite quarter turns occupy the same ground', () => {
+    for (const [a, b] of [
+      [0, 2],
+      [1, 3],
+    ] as const) {
+      expect(canPlace('smallHouse', [20, 0], [at('bridge', [0, 0], a)])).toBe(
+        canPlace('smallHouse', [20, 0], [at('bridge', [0, 0], b)]),
+      )
+    }
   })
 })

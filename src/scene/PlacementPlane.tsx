@@ -23,14 +23,14 @@ export function PlacementPlane() {
   })
 
   const updateGhost = (e: ThreeEvent<PointerEvent>) => {
-    const { selectedType, placed } = useAppStore.getState()
+    const { selectedType, placed, rotation } = useAppStore.getState()
     if (!selectedType) {
       ghostState.active = false
       return
     }
     const [x, z] = snapPosition(e.point.x, e.point.z)
     ghostState.active = true
-    ghostState.valid = canPlace(selectedType, [x, z], placed)
+    ghostState.valid = canPlace(selectedType, [x, z], placed, 1, rotation)
     ghostState.x = x
     ghostState.z = z
   }

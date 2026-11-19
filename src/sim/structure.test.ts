@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUILDING_LIST, FLOOR_HEIGHT, floorCentreY } from './buildingSpecs'
+import { PLAIN_STACK_LIST, FLOOR_HEIGHT, floorCentreY } from './buildingSpecs'
 import {
   GROUND,
   buildStructure,
@@ -59,7 +59,7 @@ describe('rotateHalf and rotateFootprint', () => {
  * geometry against the formulae the old loop used, not against a snapshot.
  */
 describe('the stack layout reproduces the original hard-coded geometry', () => {
-  it.each(BUILDING_LIST)('$label', (spec) => {
+  it.each(PLAIN_STACK_LIST)('$label', (spec) => {
     const { nodes, links } = buildStructure(spec)
 
     expect(nodes).toHaveLength(spec.floors)
@@ -89,7 +89,7 @@ describe('the stack layout reproduces the original hard-coded geometry', () => {
   })
 
   it('every link is vertical, so perpendicular drift is horizontal drift', () => {
-    for (const spec of BUILDING_LIST) {
+    for (const spec of PLAIN_STACK_LIST) {
       for (const link of buildStructure(spec).links) {
         expect(linkAxis(link)).toEqual([0, 1, 0])
       }
@@ -97,7 +97,7 @@ describe('the stack layout reproduces the original hard-coded geometry', () => {
   })
 
   it('rests stack the floors with no gaps and no overlaps', () => {
-    const { links } = buildStructure(BUILDING_LIST[4])
+    const { links } = buildStructure(PLAIN_STACK_LIST[4])
     expect(links[0].rest).toEqual([0, floorCentreY(0), 0])
     for (let i = 1; i < links.length; i++) {
       expect(links[i].rest).toEqual([0, FLOOR_HEIGHT, 0])
@@ -107,7 +107,7 @@ describe('the stack layout reproduces the original hard-coded geometry', () => {
 
 describe('rotating a stack', () => {
   it.each([0, 1, 2, 3] as Quarter[])('quarter %i keeps the floors stacked vertically', (q) => {
-    const spec = BUILDING_LIST[4]
+    const spec = PLAIN_STACK_LIST[4]
     const { nodes } = buildStructure(spec, q)
     nodes.forEach((n, i) => {
       // A vertical stack is on the rotation axis, so only the half-extents can change.

@@ -44,12 +44,18 @@ export function PhysicsProvider({ children }: { children: ReactNode }) {
       lastReset.current = resetToken
       world.clear()
     }
-    const wanted = new Set(placed.map((p) => p.instanceId))
+    const wanted = new Map(placed.map((p) => [p.instanceId, p]))
     for (const b of world.list()) {
-      if (!wanted.has(b.instanceId)) world.removeBuilding(b.instanceId)
+      const want = wanted.get(b.instanceId)
+      // Turning a placed building changes its geometry, so the bodies have to be rebuilt.
+      if (!want || want.rotation !== b.rotation) world.removeBuilding(b.instanceId)
     }
     for (const p of placed) {
-      if (!world.get(p.instanceId)) world.addBuilding(p.instanceId, p.type, p.position)
+      // The rotation has to reach the physics too: the meshes are driven from the bodies
+      // every frame, so a body built unrotated silently overwrites a correctly rotated mesh.
+      if (!world.get(p.instanceId)) {
+        world.addBuilding(p.instanceId, p.type, p.position, p.rotation)
+      }
     }
   }, [world, placed, resetToken])
 

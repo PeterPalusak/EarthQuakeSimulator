@@ -1,7 +1,8 @@
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { Color, MeshStandardMaterial, type Mesh } from 'three'
-import { BUILDING_SPECS, FLOOR_HEIGHT, floorCentreY } from '../sim/buildingSpecs'
+import { BUILDING_SPECS } from '../sim/buildingSpecs'
+import { buildStructure } from '../sim/structure'
 import { damageColour } from '../sim/damage'
 import type { PlacedBuilding } from '../sim/placement'
 import { useAppStore } from '../state/store'
@@ -24,8 +25,13 @@ import { UNIT_BOX } from './sharedGeometry'
  */
 export function Building({ building }: { building: PlacedBuilding }) {
   const spec = BUILDING_SPECS[building.type]
-  const [w, d] = spec.footprint
   const [x, z] = building.position
+  // The same generator the physics uses, so the meshes cannot drift out of step with the
+  // colliders — one description of the geometry, two consumers.
+  const { nodes } = useMemo(
+    () => buildStructure(spec, building.rotation),
+    [spec, building.rotation],
+  )
   const world = usePhysics()
   const meshes = useRef<(Mesh | null)[]>([])
   const clad = spec.appearance === 'fishFingers'
@@ -41,7 +47,7 @@ export function Building({ building }: { building: PlacedBuilding }) {
   // three skips `visible === false` objects entirely — but writing neither colour nor depth.
   const materials = useMemo(
     () =>
-      Array.from({ length: spec.floors }, (_, i) =>
+      nodes.map((_node, i) =>
         clad
           ? new MeshStandardMaterial({
               transparent: true,
@@ -54,7 +60,7 @@ export function Building({ building }: { building: PlacedBuilding }) {
               roughness: 0.85,
             }),
       ),
-    [spec, clad],
+    [spec, clad, nodes],
   )
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials])
 
@@ -73,12 +79,18 @@ export function Building({ building }: { building: PlacedBuilding }) {
       mesh.quaternion.set(r.x, r.y, r.z, r.w)
       // A failed storey loses its columns and is crushed: the physics collider is flattened
       // on failure, and the mesh has to follow or floors visibly interpenetrate.
-      const crushed = instance.joints[i] === null
-      mesh.scale.set(w, FLOOR_HEIGHT * (crushed ? 0.3 : 1), d)
+      // A node is crushed when the link that was holding it up has failed.
+      const crushed = instance.links.some((l, li) => l.to === i && instance.joints[li] === null)
+      const h = nodes[i].half
+      mesh.scale.set(h[0] * 2, h[1] * 2 * (crushed ? 0.3 : 1), h[2] * 2)
 
       if (clad) continue // the cladding does its own tinting
 
-      const drift = instance.peakDrift[i] ?? 0
+      // Drift is per link; show each node the worst of whatever holds it.
+      let drift = 0
+      for (let li = 0; li < instance.links.length; li++) {
+        if (instance.links[li].to === i) drift = Math.max(drift, instance.peakDrift[li] ?? 0)
+      }
       if (drift <= 0) {
         materials[i].color.copy(undamaged[i])
       } else {
@@ -96,7 +108,7 @@ export function Building({ building }: { building: PlacedBuilding }) {
         <FishFingerFloors instanceId={building.instanceId} spec={spec} />
       )}
 
-      {Array.from({ length: spec.floors }, (_, i) => (
+      {nodes.map((node, i) => (
         <mesh
           key={i}
           ref={(m) => (meshes.current[i] = m)}
@@ -105,8 +117,8 @@ export function Building({ building }: { building: PlacedBuilding }) {
           castShadow={!clad}
           receiveShadow={!clad}
           // Starting pose; from the first frame the physics world drives it.
-          position={[x, floorCentreY(i), z]}
-          scale={[w, FLOOR_HEIGHT, d]}
+          position={[x + node.offset[0], node.offset[1], z + node.offset[2]]}
+          scale={[node.half[0] * 2, node.half[1] * 2, node.half[2] * 2]}
           onClick={(e) => {
             // Only a selection target when no build tool is active, otherwise tapping a
             // building would be ambiguous with placing one next to it.
@@ -118,7 +130,10 @@ export function Building({ building }: { building: PlacedBuilding }) {
       ))}
 
       {isSelected && (
-        <mesh position={[x, spec.floors * FLOOR_HEIGHT + 2, z]} raycast={() => null}>
+        <mesh
+          position={[x, Math.max(...nodes.map((n) => n.offset[1] + n.half[1])) + 2, z]}
+          raycast={() => null}
+        >
           <sphereGeometry args={[0.8, 12, 8]} />
           <meshBasicMaterial color="#fbbf24" />
         </mesh>

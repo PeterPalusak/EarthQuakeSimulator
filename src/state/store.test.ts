@@ -72,3 +72,50 @@ describe('remove and clear', () => {
     expect(state().placed).toEqual([])
   })
 })
+
+describe('rotation', () => {
+  it('starts unrotated and cycles through four quarter turns', () => {
+    expect(state().rotation).toBe(0)
+    const seen = [state().rotation]
+    for (let i = 0; i < 4; i++) {
+      state().rotate()
+      seen.push(state().rotation)
+    }
+    expect(seen).toEqual([0, 1, 2, 3, 0])
+  })
+
+  it('places at the current rotation', () => {
+    state().rotate()
+    state().place('road', [0, 0])
+    expect(state().placed[0].rotation).toBe(1)
+  })
+
+  it('is sticky, so a row of road is a row of taps', () => {
+    state().rotate()
+    state().place('smallHouse', [-30, 0])
+    state().place('smallHouse', [30, 0])
+    expect(state().placed.map((p) => p.rotation)).toEqual([1, 1])
+  })
+
+  it('turns the selected building in place', () => {
+    const id = state().place('road', [0, 0])!
+    state().selectInstance(id)
+    state().rotate()
+    expect(state().placed[0].rotation).toBe(1)
+  })
+
+  it('refuses a turn that would push the selection into a neighbour', () => {
+    // A road turned across this house would overlap it; the house stays put and so does the road.
+    const road = state().place('road', [0, 0])!
+    state().place('smallHouse', [0, 20])
+    state().selectInstance(road)
+    state().rotate()
+    expect(state().placed.find((p) => p.instanceId === road)!.rotation).toBe(0)
+  })
+
+  it('rejects a placement that does not fit at the current rotation', () => {
+    state().rotate()
+    state().rotate() // back along X
+    expect(state().place('road', [80, 0])).toBeNull()
+  })
+})
