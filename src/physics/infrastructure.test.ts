@@ -171,3 +171,70 @@ describe('losing a support', () => {
     }
   }, 120_000)
 })
+
+describe('the showpieces', () => {
+  it('the UFO bridge hangs its deck level, with the saucer on top of the pylon', () => {
+    const { nodes } = buildStructure(BUILDING_SPECS.ufoBridge)
+    const deck = nodes.filter((n) => n.part === 'deck')
+    const pod = nodes.find((n) => n.part === 'pod')!
+    const pylon = nodes.find((n) => n.part === 'pylon')!
+    expect(new Set(deck.map((n) => n.offset[1])).size).toBe(1) // one deck height
+    expect(pod.offset[1]).toBeGreaterThan(pylon.offset[1] + pylon.half[1])
+    // Asymmetric on purpose: the pylon sits near one end, not in the middle.
+    expect(Math.abs(pylon.offset[0])).toBeGreaterThan(BUILDING_SPECS.ufoBridge.footprint[0] / 6)
+  })
+
+  it('the TV tower tapers, and carries its mass high up', () => {
+    const { nodes } = buildStructure(BUILDING_SPECS.tvTower)
+    const shaft = nodes.filter((n) => n.part === 'floor')
+    expect(shaft.at(-1)!.half[0]).toBeLessThan(shaft[0].half[0] * 0.5)
+    const ring = nodes.find((n) => n.part === 'pod')!
+    const mast = nodes.find((n) => n.part === 'mast')!
+    expect(ring.half[0]).toBeGreaterThan(shaft.at(-1)!.half[0]) // overhangs the shaft
+    expect(ring.mass).toBeGreaterThan(shaft.at(-1)!.mass)
+    expect(mast.offset[1]).toBeGreaterThan(ring.offset[1])
+    expect(mast.mass).toBeLessThan(ring.mass * 0.2) // light, so it whips rather than topples
+  })
+
+  it.each(['ufoBridge', 'tvTower'] as const)('a %s stands with no deformation', async (id) => {
+    const world = await headlessWorld()
+    try {
+      const b = world.addBuilding('x', id, [0, 0])
+      settle(world, 2)
+      run(world, 3)
+      for (let i = 0; i < b.links.length; i++) {
+        expect(world.storeyDrift(b, i)).toBeLessThan(2e-3)
+      }
+      expect(b.collapsed).toBe(false)
+    } finally {
+      world.dispose()
+    }
+  }, 60_000)
+
+  it('both survive a medium quake and both are hurt by a megathrust', async () => {
+    const pair: LayoutEntry[] = [
+      { type: 'ufoBridge', position: [0, -35] },
+      { type: 'tvTower', position: [0, 35] },
+    ]
+    const medium = await runQuake(MEDIUM_QUAKE, pair, { settleAfter: 4 })
+    expect(medium.buildings.map((b) => b.collapsed)).toEqual([false, false])
+
+    const huge = await runQuake({ magnitude: 8, distanceKm: 20, seed: 1 }, pair, {
+      collapse: false,
+    })
+    huge.buildings.forEach((b, i) => {
+      expect(b.peakDrift).toBeGreaterThan(medium.buildings[i].peakDrift * 2)
+    })
+  }, 240_000)
+
+  it('the UFO bridge is the more fragile of the two', async () => {
+    const r = await runQuake({ magnitude: 7, distanceKm: 10, seed: 3 }, [
+      { type: 'ufoBridge', position: [0, -35] },
+      { type: 'tvTower', position: [0, 35] },
+    ], { collapse: false })
+    const [bridge, tower] = r.buildings
+    expect(bridge.peakDrift / BUILDING_SPECS.ufoBridge.driftCapacity).toBeGreaterThan(
+      tower.peakDrift / BUILDING_SPECS.tvTower.driftCapacity,
+    )
+  }, 120_000)
+})

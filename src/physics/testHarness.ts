@@ -21,7 +21,22 @@ export function run(world: QuakeWorld, seconds: number, onStep?: (step: number) 
   }
 }
 
-export const roofOf = (b: BuildingInstance) => b.bodies[b.bodies.length - 1]
+/**
+ * The top of the main structure — what you would push to make the thing sway.
+ *
+ * Not simply the last body: on the TV tower that is the antenna mast, which is deliberately
+ * light and soft so it whips. Impulsing it measures the mast's own local mode at 1.4 s rather
+ * than the tower's sway, and calibrating against that produced a shaft a hundred times too
+ * soft. Masts are excluded; everything else counts.
+ */
+export function roofOf(b: BuildingInstance) {
+  let best = 0
+  for (let i = 0; i < b.bodies.length; i++) {
+    if (b.nodes[i].part === 'mast') continue
+    if (b.nodes[i].offset[1] > b.nodes[best].offset[1]) best = i
+  }
+  return b.bodies[best]
+}
 
 /** Horizontal distance of a floor from where the building was placed. */
 export function lateralOffset(b: BuildingInstance, i: number): number {

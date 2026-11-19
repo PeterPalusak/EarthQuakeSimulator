@@ -207,11 +207,27 @@ export class QuakeWorld {
           : { x: link.anchorFrom[0], y: link.anchorFrom[1], z: link.anchorFrom[2] }
       const a2 = { x: link.anchorTo[0], y: link.anchorTo[1], z: link.anchorTo[2] }
 
+      // Rest length is the distance between the two anchors as placed. Members whose anchors
+      // already meet — every floor, pier and deck joint — give zero, which is the
+      // vector-constraining spring the structures were built around. A cable stay spans tens
+      // of metres, and a zero-rest spring across that gap simply hauls the deck up to the
+      // pylon head: at this length the joint has to constrain distance, not position, which
+      // is also what a cable physically does.
+      // `rest` is measured from the ground anchor point itself, so that anchor contributes
+      // nothing here — counting it twice puts the whole structure's placement offset into
+      // the rest length and launches it sideways.
+      const af = link.from === GROUND ? [0, 0, 0] : link.anchorFrom
+      const restLength = Math.hypot(
+        link.rest[0] + link.anchorTo[0] - af[0],
+        link.rest[1] + link.anchorTo[1] - af[1],
+        link.rest[2] + link.anchorTo[2] - af[2],
+      )
+
       const spring = this.world.createImpulseJoint(
         // Damping is 0 here and applied explicitly in `applyStoreyDamping` instead: the
         // spring joint's own damping term acts only along its motor axis (local X), so a
         // structure shaken along Z would ring essentially forever while X settled normally.
-        this.r.JointData.spring(0, link.stiffness, 0, a1, a2),
+        this.r.JointData.spring(restLength, link.stiffness, 0, a1, a2),
         lower,
         bodies[link.to],
         true,
@@ -378,13 +394,20 @@ export class QuakeWorld {
       for (let i = 0; i < b.links.length; i++) {
         if (!b.joints[i]) continue
         const link = b.links[i]
-        // Explicit damping overshoots — and can blow the solver up — once `c * dt / m` passes
-        // ~1. Capping it there turns a bad coefficient into a merely over-damped structure
-        // rather than a crash inside the WASM step.
-        const c = Math.min(link.damping, link.mass / FIXED_TIMESTEP)
         const upper = b.bodies[link.to]
         const grounded = link.from === GROUND
         const lower = grounded ? this.ground : b.bodies[link.from]
+
+        // Explicit damping overshoots — and blows the solver up — as `c * dt / m` approaches
+        // 1, where the damper reverses the relative velocity outright each step. Clamp to
+        // half that.
+        //
+        // The mass that matters is the *lighter* end, not the heavier: an equal and opposite
+        // force pair destabilises the small body first. Using the heavier end is what let the
+        // TV tower's 73 t observation ring sit on a 17 t shaft segment with a damper the
+        // shaft could not absorb, and crash inside the WASM step.
+        const effectiveMass = grounded ? upper.mass() : Math.min(upper.mass(), lower.mass())
+        const c = Math.min(link.damping, effectiveMass / (2 * FIXED_TIMESTEP))
         const vu = upper.linvel()
         const vl = lower.linvel()
         const fx = -c * (vu.x - vl.x)

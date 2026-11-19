@@ -18,7 +18,9 @@ export function CameraControls() {
       dampingFactor={0.08} // inertia; without it, touch dragging feels sticky
       target={[0, 5, 0]} // look slightly above ground, not at the horizon
       minDistance={15}
-      maxDistance={250}
+      // 250 framed a 36 m block with room to spare, but the TV tower is 98 m and would not
+      // fit however far you pulled back.
+      maxDistance={420}
       maxPolarAngle={Math.PI * 0.49} // never let the camera go below the ground plane
       minPolarAngle={0.1}
       touches={{ ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }}

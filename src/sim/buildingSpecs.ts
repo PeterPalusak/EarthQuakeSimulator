@@ -21,6 +21,8 @@ export type BuildingTypeId =
   | 'fishFingerHouse'
   | 'road'
   | 'bridge'
+  | 'ufoBridge'
+  | 'tvTower'
 
 /** The five conventional types, which form a ladder of increasing height and decreasing
  *  ductility. Invariants that only make sense for real construction are asserted over these,
@@ -71,6 +73,8 @@ export interface BuildingSpec {
   layout?: StructureLayout
   /** Deck height above the ground, metres. Bridges only. */
   deckHeight?: number
+  /** Pylon height above the ground, metres. Cable-stayed bridges only. */
+  pylonHeight?: number
   /**
    * How a floor is drawn. `solid` (the default) is one box per floor. `fishFingers` draws each
    * floor as a course of separate bars, laid crosswise to the course below. Purely cosmetic —
@@ -202,6 +206,46 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
     deckHeight: 9,
   },
 
+  /**
+   * Bratislava's Most SNP — one leaning pylon with the flying-saucer restaurant on top, and a
+   * deck held by stays running back to it. Only the near end touches the ground, so it is
+   * stiff at the abutment and increasingly stay-dependent further out. Lose the pylon and the
+   * far half has no path to the ground at all.
+   */
+  ufoBridge: {
+    id: 'ufoBridge',
+    label: 'UFO bridge',
+    floors: 7, // deck segments
+    footprint: [72, 11],
+    floorMass: 30_000,
+    storeyStiffness: 1.9e6,
+    storeyDamping: 3.0e4,
+    driftCapacity: 0.016,
+    colour: '#b9bfc6',
+    layout: 'cableBridge',
+    deckHeight: 10,
+    pylonHeight: 46,
+  },
+
+  /**
+   * Bratislava's Kamzík TV tower: a splayed base tapering into a shaft, a heavy observation
+   * ring near the top and an antenna above it. Built at roughly half the real 194 m so it
+   * still belongs beside a 36 m block. The mass up top gives it a long period, which makes it
+   * the thing to watch under "Distant rumble" and "Megathrust".
+   */
+  tvTower: {
+    id: 'tvTower',
+    label: 'TV tower',
+    floors: 14, // tapering shaft segments, 6 m each
+    footprint: [13, 13],
+    floorMass: 46_000,
+    storeyStiffness: 6.447e7,
+    storeyDamping: 1.436e6,
+    driftCapacity: 0.014,
+    colour: '#cfd4d9',
+    layout: 'tower',
+  },
+
   fishFingerHouse: {
     id: 'fishFingerHouse',
     label: 'Fish finger house',
@@ -219,7 +263,12 @@ export const BUILDING_SPECS: Record<BuildingTypeId, BuildingSpec> = {
 }
 
 /** Infrastructure: not buildings, and not part of the height ladder. */
-export const INFRASTRUCTURE_TYPES: BuildingTypeId[] = ['road', 'bridge']
+export const INFRASTRUCTURE_TYPES: BuildingTypeId[] = [
+  'road',
+  'bridge',
+  'ufoBridge',
+  'tvTower',
+]
 
 /** Palette order: the Description's ladder shortest-first, then infrastructure, then novelties. */
 export const BUILDING_ORDER: BuildingTypeId[] = [

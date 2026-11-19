@@ -12,7 +12,8 @@
  */
 import { QuakeWorld, FIXED_TIMESTEP } from '../src/physics/QuakeWorld'
 import { initRapier } from '../src/physics/rapier'
-import { BUILDING_LIST, BUILDING_SPECS, specTargetPeriod } from '../src/sim/buildingSpecs'
+import { roofOf } from '../src/physics/testHarness'
+import { BUILDING_SPECS, VERTICAL_LIST, specTargetPeriod } from '../src/sim/buildingSpecs'
 
 await initRapier()
 
@@ -30,7 +31,8 @@ function measurePeriod(type: keyof typeof BUILDING_SPECS, stiffness: number): nu
   // Let gravity settle the stack before exciting it.
   for (let i = 0; i < 240; i++) w.stepOnce()
 
-  const roof = b.bodies[b.bodies.length - 1]
+  // Shared with the tests so the two can never disagree about what the roof is.
+  const roof = roofOf(b)
   roof.applyImpulse({ x: spec.floorMass * 0.2, y: 0, z: 0 }, true)
 
   const target = specTargetPeriod(spec)
@@ -61,7 +63,9 @@ function measurePeriod(type: keyof typeof BUILDING_SPECS, stiffness: number): nu
 console.log('type            floors  target T   measured T   stiffness (N/m)   damping (N.s/m)')
 console.log('-'.repeat(84))
 
-for (const spec of BUILDING_LIST) {
+// Only upright structures: a road has no natural period worth calibrating, and the
+// roof-impulse measurement assumes a vertical stack.
+for (const spec of VERTICAL_LIST) {
   const target = specTargetPeriod(spec)
 
   // T scales as 1/sqrt(k), so a fixed-point iteration on k *= (T_measured / T_target)^2

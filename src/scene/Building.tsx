@@ -7,9 +7,10 @@ import { TILES, facadeRepeat, facadeTexture } from './facade'
 import { damageColour } from '../sim/damage'
 import type { PlacedBuilding } from '../sim/placement'
 import { useAppStore } from '../state/store'
+import { BridgeCables } from './BridgeCables'
 import { FishFingerFloors } from './FishFingerFloors'
 import { usePhysics } from './PhysicsProvider'
-import { UNIT_BOX } from './sharedGeometry'
+import { UNIT_BOX, UNIT_CYLINDER } from './sharedGeometry'
 
 /**
  * One mesh per floor, driven every frame from the matching Rapier body. The physics world is
@@ -36,6 +37,8 @@ export function Building({ building }: { building: PlacedBuilding }) {
   const world = usePhysics()
   const meshes = useRef<(Mesh | null)[]>([])
   const clad = spec.appearance === 'fishFingers'
+  // Facades belong on buildings. A pier, a deck or a concrete tower shaft has no windows.
+  const glazed = (spec.layout ?? 'stack') === 'stack'
 
   const selectInstance = useAppStore((s) => s.selectInstance)
   const selectedType = useAppStore((s) => s.selectedType)
@@ -59,7 +62,7 @@ export function Building({ building }: { building: PlacedBuilding }) {
           : (() => {
               // A facade per node, repeating to match the face it is on, so a window is
               // always a believable size whether the box is a 6 m house or a 16 m tower.
-              const map = facadeTexture(spec)?.clone() ?? null
+              const map = glazed ? (facadeTexture(spec)?.clone() ?? null) : null
               const [hx, hy] = [nodes[i].half[0], nodes[i].half[1]]
               if (map) {
                 map.needsUpdate = true
@@ -82,7 +85,7 @@ export function Building({ building }: { building: PlacedBuilding }) {
               })
             })(),
       ),
-    [spec, clad, nodes],
+    [spec, clad, nodes, glazed],
   )
   useEffect(
     () => () =>
@@ -150,15 +153,15 @@ export function Building({ building }: { building: PlacedBuilding }) {
 
   return (
     <group>
-      {clad && (
-        <FishFingerFloors instanceId={building.instanceId} spec={spec} />
-      )}
+      {clad && <FishFingerFloors instanceId={building.instanceId} spec={spec} />}
+      {spec.layout === 'cableBridge' && <BridgeCables building={building} spec={spec} />}
 
       {nodes.map((node, i) => (
         <mesh
           key={i}
           ref={(m) => (meshes.current[i] = m)}
-          geometry={UNIT_BOX}
+          // A saucer and an antenna are plainly not boxes.
+          geometry={node.part === 'pod' || node.part === 'mast' ? UNIT_CYLINDER : UNIT_BOX}
           material={materials[i]}
           castShadow={!clad}
           receiveShadow={!clad}
