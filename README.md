@@ -6,11 +6,11 @@ earthquake decide which of them survive.
 It is a web app, so it runs on a phone without installing anything: open the URL, add it to the
 home screen, and it launches full-screen and works offline.
 
-**Live URL:** _not deployed yet — see [Deployment](#deployment)._
+**Live URL:** <https://peterpalusak.github.io/EarthQuakeSimulator/>
 
-> **To do once it is live:** add the URL above and a GIF of a twelve-floor block pancaking
-> while the house beside it stands. The GIF does more than any description — it is what makes
-> someone open the link. See `plan/08-deployment.md` task 8.9.
+> **Still to do:** add a GIF of a twelve-floor block pancaking while the house beside it
+> stands. The GIF does more than any description — it is what makes someone open the link.
+> See `plan/08-deployment.md` task 8.9.
 
 ---
 
