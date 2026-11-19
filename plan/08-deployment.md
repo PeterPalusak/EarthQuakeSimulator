@@ -60,6 +60,13 @@ cheaper than discovering in a month that buildings no longer collapse.
 
 For GitHub Pages, also enable Pages in the repository settings with source "GitHub Actions".
 
+**This is not optional and it is not automatic.** Until it is done, `actions/deploy-pages`
+fails with a 404 — *"Get Pages site failed"* — while the build job above it passes, so the run
+reads as a broken pipeline rather than a missing setting. `actions/configure-pages` with
+`enablement: true` does not rescue it either: creating a Pages site needs admin rights that the
+default `GITHUB_TOKEN` is not granted, so that step simply fails one line earlier. Keep the
+build and deploy jobs separate so it is obvious which half is at fault.
+
 ### 8.3 Verify the WASM loads
 
 The first thing to check on the live URL, because the failure is silent in the console and total

@@ -16,24 +16,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Pure CI: lint, test, build the artefact. Deliberately depends on nothing about Pages, so a
+  # hosting misconfiguration can never make the code look broken. Runs on pull requests too.
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write # configure-pages needs this to create the site on the first run
     steps:
       - uses: actions/checkout@v4
-
-      # Creates the Pages site and sets its source to GitHub Actions if that has not been done
-      # already. Without it, `deploy-pages` fails with a 404 — "Get Pages site failed" — while
-      # the build above it passes, which reads as a mysteriously broken deploy. Enabling Pages
-      # by hand in the repository settings works too, but then the workflow silently depends on
-      # a setting nobody can see from the repo.
-      - id: pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
@@ -43,13 +31,23 @@ jobs:
       - run: npm run build
         env:
           # A Pages project site is served from a subpath, so every asset 404s unless `base`
-          # matches it. Taken from configure-pages rather than hard-coded, so renaming the
-          # repository cannot quietly break the deploy. Every other host uses '/'.
-          VITE_BASE: ${{ steps.pages.outputs.base_path || '/EarthQuakeSimulator' }}/
+          # matches the repository name exactly. Every other target — Cloudflare, Netlify, the
+          # container, Azure, Capacitor — uses the '/' default. vite.config normalises this,
+          # so a missing or doubled slash is harmless.
+          VITE_BASE: /EarthQuakeSimulator/
 
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
 
+  # Publishing. Separate from the build so its failures are unambiguous: if this job is the one
+  # that is red, the problem is the Pages configuration, not the code.
+  #
+  # ONE-TIME SETUP, and the reason this used to fail: GitHub Pages must be enabled for the
+  # repository with its source set to GitHub Actions — Settings -> Pages -> Build and
+  # deployment -> Source: "GitHub Actions". Until that is done there is no Pages site to
+  # publish into, and `deploy-pages` fails with a 404 "Get Pages site failed" while the build
+  # above it passes. The workflow cannot do it for you: enabling Pages needs admin rights that
+  # the Actions token is not granted by default.
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main'
