@@ -1,8 +1,9 @@
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
-import { Color, MeshStandardMaterial, type Mesh } from 'three'
+import { Color, Euler, MeshStandardMaterial, Quaternion, type Mesh } from 'three'
 import { BUILDING_SPECS } from '../sim/buildingSpecs'
 import { buildStructure } from '../sim/structure'
+import { TILES, facadeRepeat, facadeTexture } from './facade'
 import { damageColour } from '../sim/damage'
 import type { PlacedBuilding } from '../sim/placement'
 import { useAppStore } from '../state/store'
@@ -55,17 +56,46 @@ export function Building({ building }: { building: PlacedBuilding }) {
               depthWrite: false,
               colorWrite: false,
             })
-          : new MeshStandardMaterial({
-              color: new Color(spec.colour).multiplyScalar(i % 2 === 0 ? 1 : 0.9),
-              roughness: 0.85,
-            }),
+          : (() => {
+              // A facade per node, repeating to match the face it is on, so a window is
+              // always a believable size whether the box is a 6 m house or a 16 m tower.
+              const map = facadeTexture(spec)?.clone() ?? null
+              const [hx, hy] = [nodes[i].half[0], nodes[i].half[1]]
+              if (map) {
+                map.needsUpdate = true
+                const [rx, ry] = facadeRepeat(hx * 2, hy * 2)
+                map.repeat.set(rx, ry)
+                // Step through the texture's window rows so consecutive storeys differ.
+                map.offset.set(((i * 7) % TILES) / TILES, (i % TILES) / TILES)
+              }
+              return new MeshStandardMaterial({
+                // Three multiplies colour by map, so tinting a facade with the building's own
+                // colour squares it and the result comes out nearly black. The facade already
+                // carries the colour; this stays white so the map shows through, dimmed very
+                // slightly on alternate floors so storeys still read at a distance. The damage
+                // tint works the same either way, because it lerps this colour.
+                color: new Color(map ? 0xffffff : spec.colour).multiplyScalar(
+                  i % 2 === 0 ? 1 : 0.94,
+                ),
+                roughness: 0.85,
+                map,
+              })
+            })(),
       ),
     [spec, clad, nodes],
   )
-  useEffect(() => () => materials.forEach((m) => m.dispose()), [materials])
+  useEffect(
+    () => () =>
+      materials.forEach((m) => {
+        m.map?.dispose()
+        m.dispose()
+      }),
+    [materials],
+  )
 
   const undamaged = useMemo(() => materials.map((m) => m.color.clone()), [materials])
   const tint = useRef(new Color())
+  const lean = useMemo(() => ({ euler: new Euler(), quat: new Quaternion() }), [])
 
   useFrame(() => {
     const instance = world?.get(building.instanceId)
@@ -77,6 +107,22 @@ export function Building({ building }: { building: PlacedBuilding }) {
       const r = instance.bodies[i].rotation()
       mesh.position.set(t.x, t.y, t.z)
       mesh.quaternion.set(r.x, r.y, r.z, r.w)
+
+      // Lean each piece by the shear across whatever is holding it up.
+      //
+      // The bodies have their rotations locked, so without this a swaying building is a stack
+      // of flat plates sliding over one another — which looks like a bug rather than like a
+      // building bending. Rendering only, costs nothing, and it is the single biggest gain in
+      // how the shaking reads.
+      const li = instance.links.findIndex((l, k) => l.to === i && instance.joints[k] !== null)
+      if (li >= 0) {
+        const [dx, dz] = world!.linkShear(instance, li)
+        const span = instance.links[li].span
+        lean.euler.set(dz / span, 0, -dx / span)
+        lean.quat.setFromEuler(lean.euler)
+        mesh.quaternion.multiply(lean.quat)
+      }
+
       // A failed storey loses its columns and is crushed: the physics collider is flattened
       // on failure, and the mesh has to follow or floors visibly interpenetrate.
       // A node is crushed when the link that was holding it up has failed.

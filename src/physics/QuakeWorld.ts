@@ -351,6 +351,22 @@ export class QuakeWorld {
   }
 
   /**
+   * Horizontal shear across link `i`, in metres, with the display gain divided out.
+   *
+   * Same quantity `storeyDrift` reduces to a scalar, but keeping its direction — the renderer
+   * needs it to lean a floor the way it is actually being pushed.
+   */
+  linkShear(b: BuildingInstance, i: number): [number, number] {
+    const link = b.links[i]
+    const from = this.linkFromPoint(b, link)
+    const to = b.bodies[link.to].translation()
+    return [
+      (to.x - from.x - link.rest[0]) / MOTION_GAIN,
+      (to.z - from.z - link.rest[2]) / MOTION_GAIN,
+    ]
+  }
+
+  /**
    * Viscous damping across every intact storey, applied as an equal and opposite force pair
    * proportional to the relative velocity of the two floors.
    *
