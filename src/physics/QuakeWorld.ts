@@ -1,11 +1,13 @@
 import type { ImpulseJoint, RigidBody, World } from '@dimforge/rapier3d-compat'
+import { BUILDING_SPECS, type BuildingSpec, type BuildingTypeId } from '../sim/buildingSpecs'
 import {
-  BUILDING_SPECS,
-  FLOOR_HEIGHT,
-  floorCentreY,
-  type BuildingSpec,
-  type BuildingTypeId,
-} from '../sim/buildingSpecs'
+  GROUND,
+  buildStructure,
+  linkAxis,
+  type Quarter,
+  type StructureLink,
+  type StructureNode,
+} from '../sim/structure'
 import { GROUND_HALF_EXTENT } from '../sim/placement'
 import { getRapier } from './rapier'
 
@@ -69,12 +71,17 @@ export interface BuildingInstance {
   spec: BuildingSpec
   /** [x, z] ground position of the footprint centre */
   origin: [number, number]
+  /** Quarter turns about Y applied at placement. */
+  rotation: Quarter
+  /** The generated geometry. `bodies[i]` is `nodes[i]`; `joints[i]` is `links[i]`. */
+  nodes: StructureNode[]
+  links: StructureLink[]
   bodies: RigidBody[]
-  /** `joints[i]` ties floor i to whatever is below it — floor i-1, or the ground when i is 0. */
+  /** `joints[i]` realises `links[i]`; null once that link has failed. */
   joints: (StoreyJoint | null)[]
-  /** Peak interstorey drift ratio seen so far, per storey, index matching `joints`. */
+  /** Peak drift ratio seen so far, per link, index matching `joints`. */
   peakDrift: number[]
-  /** Storeys overloaded by a failure above them, and so closer to failing themselves. */
+  /** Links overloaded by a failure next to them, and so closer to failing themselves. */
   weakened: boolean[]
   collapsed: boolean
 }
@@ -153,72 +160,79 @@ export class QuakeWorld {
     instanceId: string,
     type: BuildingTypeId,
     origin: [number, number],
+    rotation: Quarter = 0,
   ): BuildingInstance {
     const spec = BUILDING_SPECS[type]
-    const [w, d] = spec.footprint
     const [ox, oz] = origin
+    const { nodes, links } = buildStructure(spec, rotation)
 
-    const bodies: RigidBody[] = []
-    for (let i = 0; i < spec.floors; i++) {
-      const body = this.world.createRigidBody(
+    const bodies: RigidBody[] = nodes.map((n) =>
+      this.world.createRigidBody(
         this.r.RigidBodyDesc.dynamic()
-          .setTranslation(ox, floorCentreY(i), oz)
+          .setTranslation(ox + n.offset[0], n.offset[1], oz + n.offset[2])
           .lockRotations()
-          .setCcdEnabled(true) // detached floors must not tunnel through the ground
+          .setCcdEnabled(true) // detached pieces must not tunnel through the ground
           // Sway amplitudes are millimetres, which is below Rapier's sleep threshold: a
-          // sleeping floor freezes mid-oscillation and the building looks dead.
+          // sleeping body freezes mid-oscillation and the structure looks dead.
           .setCanSleep(false)
-          // An intact floor carries no weight. A zero-rest-length spring is compliant in
+          // An intact piece carries no weight. A zero-rest-length spring is compliant in
           // every direction, so the stacked dead load would sag the 12-floor block by ~0.6 m
-          // and the floors would visibly interpenetrate. The storey springs model lateral
-          // stiffness only; vertical equilibrium is the generic joint's LinY lock.
-          // `applyPendingBreaks` restores gravity the moment a storey fails, so debris falls.
+          // and the floors would visibly interpenetrate. The springs model lateral stiffness
+          // only; `applyPendingBreaks` restores gravity the moment a link fails, so the
+          // debris falls.
           .setGravityScale(0)
           .setLinearDamping(0.05)
           .setAngularDamping(0.3),
-      )
+      ),
+    )
+
+    nodes.forEach((n, i) => {
       this.world.createCollider(
-        this.r.ColliderDesc.cuboid(w / 2, FLOOR_HEIGHT / 2, d / 2)
-          .setMass(spec.floorMass) // explicit mass, so the spec means what it says
+        this.r.ColliderDesc.cuboid(n.half[0], n.half[1], n.half[2])
+          .setMass(n.mass) // explicit mass, so the spec means what it says
           .setFriction(0.8)
           .setRestitution(0.03),
-        body,
+        bodies[i],
       )
-      bodies.push(body)
-    }
+    })
 
-    const joints: (StoreyJoint | null)[] = []
-    for (let i = 0; i < spec.floors; i++) {
-      const lower = i === 0 ? this.ground : bodies[i - 1]
-      // Ground anchors are in ground-local space, so they carry the footprint position;
-      // floor anchors are relative to the floor's own centre.
-      const a1 = i === 0 ? { x: ox, y: 0, z: oz } : { x: 0, y: FLOOR_HEIGHT / 2, z: 0 }
-      const a2 = { x: 0, y: -FLOOR_HEIGHT / 2, z: 0 }
+    const joints: (StoreyJoint | null)[] = links.map((link) => {
+      const lower = link.from === GROUND ? this.ground : bodies[link.from]
+      // A ground anchor lives in ground-local space and therefore carries the placement
+      // position; a node anchor is relative to that node's own centre.
+      const a1 =
+        link.from === GROUND
+          ? { x: ox + link.anchorFrom[0], y: link.anchorFrom[1], z: oz + link.anchorFrom[2] }
+          : { x: link.anchorFrom[0], y: link.anchorFrom[1], z: link.anchorFrom[2] }
+      const a2 = { x: link.anchorTo[0], y: link.anchorTo[1], z: link.anchorTo[2] }
 
       const spring = this.world.createImpulseJoint(
         // Damping is 0 here and applied explicitly in `applyStoreyDamping` instead: the
         // spring joint's own damping term acts only along its motor axis (local X), so a
-        // building shaken along Z would ring essentially forever while X settled normally.
-        this.r.JointData.spring(0, spec.storeyStiffness, 0, a1, a2),
+        // structure shaken along Z would ring essentially forever while X settled normally.
+        this.r.JointData.spring(0, link.stiffness, 0, a1, a2),
         lower,
-        bodies[i],
+        bodies[link.to],
         true,
       )
       // Jointed neighbours touch face to face; sliding friction across that interface would
-      // eat the sway and leave the building stuck at an offset rather than returning upright.
+      // eat the sway and leave the structure stuck at an offset rather than returning upright.
       spring.setContactsEnabled(false)
-      joints.push({ spring })
-    }
+      return { spring }
+    })
 
     const building: BuildingInstance = {
       instanceId,
       type,
       spec,
       origin,
+      rotation,
+      nodes,
+      links,
       bodies,
       joints,
-      peakDrift: new Array(spec.floors).fill(0),
-      weakened: new Array(spec.floors).fill(false),
+      peakDrift: new Array(links.length).fill(0),
+      weakened: new Array(links.length).fill(false),
       collapsed: false,
     }
     this.buildings.set(instanceId, building)
@@ -294,14 +308,40 @@ export class QuakeWorld {
     return [t.x - g.x - b.origin[0], t.z - g.z - b.origin[1]]
   }
 
-  /** Interstorey drift ratio of storey `i`: lateral offset from the floor below / floor height. */
+  /** World position of a link's lower end — a node centre, or a point on the ground. */
+  private linkFromPoint(b: BuildingInstance, link: StructureLink) {
+    if (link.from !== GROUND) return b.bodies[link.from].translation()
+    const g = this.ground.translation()
+    return {
+      x: g.x + b.origin[0] + link.anchorFrom[0],
+      y: g.y + link.anchorFrom[1],
+      z: g.z + b.origin[1] + link.anchorFrom[2],
+    }
+  }
+
+  /**
+   * Drift ratio across link `i`: how far its two ends have moved relative to each other
+   * *perpendicular to the link's own axis*, over the link's span.
+   *
+   * For a vertical link that is horizontal offset over storey height — the interstorey drift
+   * ratio, exactly as before. For a horizontal deck link it is sag plus transverse sway, which
+   * is the right damage measure for a span. One formula, because the thing that matters is
+   * always deformation across the member rather than along it.
+   */
   storeyDrift(b: BuildingInstance, i: number): number {
-    const upper = b.bodies[i].translation()
-    const lower =
-      i === 0
-        ? { x: this.ground.translation().x + b.origin[0], z: this.ground.translation().z + b.origin[1] }
-        : b.bodies[i - 1].translation()
-    return Math.hypot(upper.x - lower.x, upper.z - lower.z) / FLOOR_HEIGHT
+    const link = b.links[i]
+    const from = this.linkFromPoint(b, link)
+    const to = b.bodies[link.to].translation()
+
+    // Departure from the rest separation.
+    const dx = to.x - from.x - link.rest[0]
+    const dy = to.y - from.y - link.rest[1]
+    const dz = to.z - from.z - link.rest[2]
+
+    // Strip the component along the axis; what is left is the shear.
+    const [ax, ay, az] = linkAxis(link)
+    const along = dx * ax + dy * ay + dz * az
+    return Math.hypot(dx - along * ax, dy - along * ay, dz - along * az) / link.span
   }
 
   /**
@@ -313,15 +353,16 @@ export class QuakeWorld {
    */
   private applyStoreyDamping() {
     for (const b of this.buildings.values()) {
-      // Explicit damping overshoots — and can blow the solver up — once `c * dt / m` passes
-      // ~1. Capping it there turns a bad coefficient into a merely over-damped building
-      // rather than a crash inside the WASM step.
-      const cMax = b.spec.floorMass / FIXED_TIMESTEP
-      const c = Math.min(b.spec.storeyDamping, cMax)
-      for (let i = 0; i < b.bodies.length; i++) {
+      for (let i = 0; i < b.links.length; i++) {
         if (!b.joints[i]) continue
-        const upper = b.bodies[i]
-        const lower = i === 0 ? this.ground : b.bodies[i - 1]
+        const link = b.links[i]
+        // Explicit damping overshoots — and can blow the solver up — once `c * dt / m` passes
+        // ~1. Capping it there turns a bad coefficient into a merely over-damped structure
+        // rather than a crash inside the WASM step.
+        const c = Math.min(link.damping, link.mass / FIXED_TIMESTEP)
+        const upper = b.bodies[link.to]
+        const grounded = link.from === GROUND
+        const lower = grounded ? this.ground : b.bodies[link.from]
         const vu = upper.linvel()
         const vl = lower.linvel()
         const fx = -c * (vu.x - vl.x)
@@ -329,7 +370,7 @@ export class QuakeWorld {
         const fz = -c * (vu.z - vl.z)
         upper.addForce({ x: fx, y: fy, z: fz }, false)
         // The ground is kinematic — pushing back on it would do nothing anyway.
-        if (i > 0) lower.addForce({ x: -fx, y: -fy, z: -fz }, false)
+        if (!grounded) lower.addForce({ x: -fx, y: -fy, z: -fz }, false)
       }
     }
   }
@@ -343,13 +384,13 @@ export class QuakeWorld {
 
   private sampleDrift() {
     for (const b of this.buildings.values()) {
-      for (let i = 0; i < b.bodies.length; i++) {
+      for (let i = 0; i < b.links.length; i++) {
         if (!b.joints[i]) continue
         const drift = this.storeyDrift(b, i)
         if (drift > b.peakDrift[i]) b.peakDrift[i] = drift
         const capacity = b.weakened[i]
-          ? b.spec.driftCapacity * WEAKENED_CAPACITY
-          : b.spec.driftCapacity
+          ? b.links[i].capacity * WEAKENED_CAPACITY
+          : b.links[i].capacity
         if (this.collapseEnabled && drift > capacity) this.breakStorey(b, i)
       }
     }
@@ -362,38 +403,82 @@ export class QuakeWorld {
     this.pendingBreaks.push({ building, storey })
   }
 
+  /**
+   * Which nodes are still held up, i.e. still reachable from the ground through intact links.
+   *
+   * This replaces the old "everything above the failed storey falls". For a vertical stack the
+   * two are identical, but for a bridge they are not: a deck segment only falls when it has
+   * lost *every* path back to a pier, and "above" means nothing on a horizontal structure.
+   */
+  private supportedNodes(b: BuildingInstance): boolean[] {
+    const supported = new Array<boolean>(b.nodes.length).fill(false)
+    let grew = true
+    while (grew) {
+      grew = false
+      for (let i = 0; i < b.links.length; i++) {
+        if (!b.joints[i]) continue // failed link carries nothing
+        const { from, to } = b.links[i]
+        const fromHeld = from === GROUND || supported[from]
+        const toHeld = supported[to]
+        // A link conducts support both ways: a deck hanging off a pylon holds up the segment
+        // beyond it just as the pylon holds up the deck.
+        if (fromHeld && !toHeld) {
+          supported[to] = true
+          grew = true
+        } else if (toHeld && from !== GROUND && !supported[from]) {
+          supported[from] = true
+          grew = true
+        }
+      }
+    }
+    return supported
+  }
+
   private applyPendingBreaks() {
     if (this.pendingBreaks.length === 0) return
+    const touched = new Set<BuildingInstance>()
+
     for (const { building, storey } of this.pendingBreaks) {
       const joint = building.joints[storey]
       if (!joint) continue
       this.world.removeImpulseJoint(joint.spring, true)
       building.joints[storey] = null
-      // Everything from here up is now free debris: let it rotate, fall and collide again.
-      for (let i = storey; i < building.bodies.length; i++) {
-        building.bodies[i].setEnabledRotations(true, true, true, true)
-        building.bodies[i].setGravityScale(1, true)
-        building.bodies[i].setLinearDamping(0.1)
-      }
-      // The failed storey has lost the columns that held its floor up, so the slab above
-      // drops through it. Flattening its collider is what lets that happen: without it the
-      // floors above simply rest on the floors below at their original height and a
-      // "collapse" leaves the building standing at full height, which reads as a bug.
-      const collider = building.bodies[storey].collider(0)
+      building.collapsed = true
+      touched.add(building)
+
+      const link = building.links[storey]
+
+      // The failed member has lost whatever was holding it up, so the mass above drops
+      // through it. Flattening its collider is what lets that happen: without it the pieces
+      // above simply rest on the pieces below at their original height and a "collapse"
+      // leaves the structure standing at full height, which reads as a bug.
+      const collider = building.bodies[link.to].collider(0)
       if (collider) {
         const half = collider.halfExtents()
-        if (half) {
-          collider.setHalfExtents({ x: half.x, y: FLOOR_HEIGHT * 0.15, z: half.z })
-        }
+        if (half) collider.setHalfExtents({ x: half.x, y: half.y * 0.3, z: half.z })
       }
 
-      // The storey below now carries the falling mass above it. Real collapses propagate
-      // downward for exactly this reason — it is what makes a pancake collapse rather than a
-      // clean decapitation. Halving its capacity makes it much more likely to go next.
-      if (storey > 0) building.weakened[storey - 1] = true
-      building.collapsed = true
+      // Whatever was carrying this member now carries the load it was taking. Real collapses
+      // propagate toward the support for exactly this reason — it is what makes a pancake
+      // rather than a clean decapitation. Halving capacity makes those links likely to go next.
+      for (let j = 0; j < building.links.length; j++) {
+        if (j === storey || !building.joints[j]) continue
+        if (building.links[j].to === link.from) building.weakened[j] = true
+      }
     }
     this.pendingBreaks = []
+
+    // Anything that has lost its path to the ground is now free debris: let it rotate, fall
+    // and collide again.
+    for (const b of touched) {
+      const supported = this.supportedNodes(b)
+      for (let i = 0; i < b.bodies.length; i++) {
+        if (supported[i]) continue
+        b.bodies[i].setEnabledRotations(true, true, true, true)
+        b.bodies[i].setGravityScale(1, true)
+        b.bodies[i].setLinearDamping(0.1)
+      }
+    }
   }
 
   readFloor(b: BuildingInstance, i: number, out: FloorState): FloorState {

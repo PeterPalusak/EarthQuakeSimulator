@@ -9,6 +9,9 @@
 
 export const FLOOR_HEIGHT = 3 // metres, all building types
 
+/** Structural arrangements `buildStructure` knows how to generate (src/sim/structure.ts). */
+export type StructureLayout = 'stack' | 'road' | 'bridge' | 'cableBridge' | 'tower'
+
 export type BuildingTypeId =
   | 'smallHouse'
   | 'largeHouse'
@@ -58,6 +61,12 @@ export interface BuildingSpec {
   periodFactor?: number
   /** Marks a type that is not real construction, so the engineering invariants skip it. */
   novelty?: boolean
+  /**
+   * Which structural arrangement `buildStructure` should generate. Defaults to `stack`, the
+   * vertical chain of floors every building type uses. Roads, bridges and towers are chains
+   * with a different shape — see src/sim/structure.ts.
+   */
+  layout?: StructureLayout
   /**
    * How a floor is drawn. `solid` (the default) is one box per floor. `fishFingers` draws each
    * floor as a course of separate bars, laid crosswise to the course below. Purely cosmetic —
